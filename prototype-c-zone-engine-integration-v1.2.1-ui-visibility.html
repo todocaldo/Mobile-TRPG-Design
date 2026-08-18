@@ -1,0 +1,4437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mercenary Company — Prototype C Zone UI & Inspection v1.2.1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --charcoal:#141519;
+    --charcoal-2:#1c1e23;
+    --panel:#22242b;
+    --panel-line:#34363f;
+    --parchment:#e9dfc4;
+    --parchment-dim:#c9bf9f;
+    --ink:#1c1810;
+    --brass:#c98a3e;
+    --brass-light:#e3ab5f;
+    --merc:#4f9b9b;
+    --merc-dim:#2c4f4f;
+    --enemy:#b8493f;
+    --enemy-dim:#4f2a26;
+    --good:#7fb069;
+    --warn:#d94f4f;
+    --line:#3c3e46;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 20% 0%, rgba(201,138,62,0.06), transparent 45%),
+      radial-gradient(circle at 85% 90%, rgba(79,155,155,0.05), transparent 50%),
+      var(--charcoal);
+    color:var(--parchment);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    padding:14px;
+  }
+  .wrap{max-width:1180px;margin:0 auto;}
+
+  header{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:16px;flex-wrap:wrap;
+    padding:14px 18px;
+    background:var(--panel);
+    border:1px solid var(--panel-line);
+    border-radius:10px;
+    margin-bottom:12px;
+  }
+  .title-block .eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--brass-light);opacity:.85;
+  }
+  .title-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .title-block h1{
+    font-family:'Bitter',serif;font-weight:800;font-size:20px;margin:2px 0 0;
+    color:var(--parchment);letter-spacing:.01em;
+  }
+  .hdr-stats{display:flex;gap:18px;align-items:center;flex-wrap:wrap;}
+  .hdr-stat{text-align:center;}
+  .hdr-stat .num{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:22px;color:var(--brass-light);line-height:1;}
+  .hdr-stat .lbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--parchment-dim);margin-top:3px;}
+  .cp-pips{display:flex;gap:4px;margin-top:4px;justify-content:center;}
+  .pip{width:9px;height:9px;border-radius:50%;background:var(--panel-line);border:1px solid var(--line);}
+  .pip.on{background:var(--brass);border-color:var(--brass-light);box-shadow:0 0 6px rgba(201,138,62,.6);}
+  #restartBtn{
+    background:transparent;border:1px solid var(--brass);color:var(--brass-light);
+    font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+    padding:4px 8px;border-radius:5px;cursor:pointer;transition:.15s;
+  }
+  #restartBtn:hover{background:var(--brass);color:var(--ink);}
+  #headerBeginBtn{
+    background:var(--brass);border:none;color:var(--ink);font-weight:700;
+    padding:9px 16px;border-radius:7px;cursor:pointer;font-size:12.5px;
+  }
+  #headerBeginBtn:hover{background:var(--brass-light);}
+  #headerBeginBtn:disabled{background:var(--panel-line);color:var(--parchment-dim);cursor:not-allowed;}
+
+  /* Header initiative strip: left-to-right scrolling, sits next to CP wherever there's room
+     (natural flex-wrap), drops to its own row when there isn't. */
+  .hdr-initiative-strip{
+    display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+    padding:4px 2px;flex:1 1 160px;min-width:120px;align-items:center;
+  }
+  .init-chip{
+    flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;
+    min-width:42px;padding:5px 7px;border-radius:8px;
+    background:var(--charcoal-2);border:1px solid var(--panel-line);
+    font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--parchment-dim);
+  }
+  .init-chip.current{border-color:var(--brass);background:rgba(201,138,62,.15);}
+  .init-chip.dead{opacity:.3;text-decoration:line-through;}
+  .init-chip.dormant{opacity:.6;font-style:italic;}
+  .init-chip .chip-dot{width:6px;height:6px;border-radius:50%;}
+  .init-chip .chip-dot.merc{background:var(--merc);}
+  .init-chip .chip-dot.enemy{background:var(--enemy);}
+  .init-chip .chip-name{font-weight:700;font-size:10px;color:var(--parchment);white-space:nowrap;}
+  .init-chip .chip-iv{color:var(--brass-light);}
+  .expedition-box{
+    display:flex;flex-direction:column;gap:8px;
+    background:var(--charcoal-2);border:1px solid var(--panel-line);border-radius:9px;
+    padding:10px 14px;
+  }
+  .expedition-box-top{display:flex;align-items:center;gap:14px;justify-content:space-between;}
+  #headerDifficultySelect{width:100%;font-size:11px;padding:6px 8px;}
+
+  /* Collapsible top-level sections (Company Roster / Inventory) */
+  .section-toggle{
+    display:flex;justify-content:space-between;align-items:center;
+    cursor:pointer;padding:9px 2px;
+    font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--brass-light);border-bottom:1px solid var(--panel-line);margin-bottom:10px;
+  }
+  .section-toggle:hover{color:var(--brass-light);opacity:.8;}
+  .section-toggle .caret{font-size:11px;}
+  .section-body-wrap{margin-bottom:18px;}
+  .battle-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+
+  /* CAMPAIGN / ROSTER / INVENTORY */
+  .merc-card{
+    background:var(--charcoal-2);border:1px solid var(--panel-line);border-radius:9px;
+    margin-bottom:8px;overflow:hidden;
+  }
+  .merc-card.injured{opacity:.55;}
+  .merc-card.dead-merc{opacity:.4;filter:grayscale(1);}
+  .merc-card.dead-merc .mc-name{text-decoration:line-through;}
+  .merc-card.recruit-selected{border-color:var(--brass);box-shadow:0 0 0 1px var(--brass) inset;}
+  .merc-card-header{
+    display:flex;align-items:center;gap:10px;padding:11px 13px;cursor:pointer;
+  }
+  .merc-card-header:hover{background:rgba(201,138,62,.07);}
+  .mc-name{font-family:'Bitter',serif;font-weight:700;font-size:14px;flex-shrink:0;}
+  .mc-summary{
+    color:var(--parchment-dim);font-size:11.5px;flex:1;text-align:right;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .mc-caret{color:var(--brass-light);font-size:10px;flex-shrink:0;}
+  .merc-card-body{padding:2px 13px 14px;border-top:1px solid var(--panel-line);}
+  .mc-section-label{
+    font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--brass-light);margin:10px 0 6px;
+  }
+  .mc-stats-row{font-size:11.5px;color:var(--parchment-dim);font-family:'JetBrains Mono',monospace;margin-top:8px;}
+  .mc-trait{font-size:11.5px;margin-bottom:3px;color:var(--parchment);}
+  .exp-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;}
+  .exp-row{display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0;color:var(--parchment-dim);}
+  .exp-row.exp-equipped{color:var(--brass-light);font-weight:700;}
+  .exp-label{text-transform:capitalize;}
+  .exp-stars{font-family:'JetBrains Mono',monospace;letter-spacing:1px;}
+  .mc-equip-select{
+    width:100%;background:var(--charcoal-2);border:1px solid var(--panel-line);color:var(--parchment);
+    padding:8px 9px;border-radius:6px;font-size:12px;
+  }
+  .xpbar{width:70px;height:6px;background:#000;border-radius:3px;overflow:hidden;border:1px solid #000;display:inline-block;vertical-align:middle;margin-left:6px;}
+  .xpfill{height:100%;background:var(--brass);}
+  .inv-item{
+    display:flex;justify-content:space-between;align-items:center;background:var(--charcoal-2);
+    border:1px solid var(--panel-line);border-radius:7px;padding:7px 10px;margin-bottom:6px;font-size:12px;
+  }
+  .inv-item .iname{font-family:'Bitter',serif;font-weight:700;}
+  .inv-item .itype{color:var(--parchment-dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;margin-left:6px;}
+  .inv-item select{
+    background:var(--charcoal-2);border:1px solid var(--panel-line);color:var(--parchment);
+    font-size:11px;padding:4px 6px;border-radius:5px;
+  }
+  #beginExpeditionBtn{
+    width:100%;background:var(--brass);border:none;color:var(--ink);font-weight:700;
+    padding:12px;border-radius:8px;cursor:pointer;font-size:13.5px;margin-top:12px;
+  }
+  #beginExpeditionBtn:hover{background:var(--brass-light);}
+  #beginExpeditionBtn:disabled{background:var(--panel-line);color:var(--parchment-dim);cursor:not-allowed;}
+  .level-choice-btn{
+    display:block;width:100%;text-align:left;background:var(--charcoal-2);border:1.5px solid var(--panel-line);
+    color:var(--parchment);padding:10px 12px;border-radius:8px;margin-bottom:8px;cursor:pointer;font-size:12.5px;
+  }
+  .level-choice-btn:hover{border-color:var(--brass);background:rgba(201,138,62,.09);}
+  .level-choice-btn small{display:block;color:var(--parchment-dim);margin-top:2px;font-size:10.5px;}
+  .resolution-row{
+    display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dotted var(--panel-line);font-size:12.5px;
+  }
+
+  .grid{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;}
+  @media(max-width:880px){.grid{grid-template-columns:1fr;}}
+
+  /* Battle screen: Field Report sits visually under the map on desktop (same column, second row),
+     but is explicitly ordered LAST on mobile (after Orders/Ladder/Expedition/Hostiles) regardless
+     of that desktop placement — the two layouts need different positions, not just a stack collapse. */
+  .battle-grid{grid-template-rows:auto auto;}
+  .battle-grid .map-card{grid-column:1;grid-row:1;}
+  .battle-grid .sidebar-wrapper{grid-column:2;grid-row:1 / span 2;display:flex;flex-direction:column;gap:12px;}
+  .battle-grid .log-card{grid-column:1;grid-row:2;}
+  @media(max-width:880px){
+    .battle-grid .map-card{grid-column:1;grid-row:auto;order:1;}
+    .battle-grid .sidebar-wrapper{grid-column:1;grid-row:auto;order:2;}
+    .battle-grid .log-card{grid-column:1;grid-row:auto;order:3;}
+  }
+
+  .card{
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:10px;
+    padding:14px;
+  }
+  .card h2{
+    font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--brass-light);margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid var(--panel-line);
+  }
+
+  .map-card{position:relative;}
+  #mapArea{position:relative;width:100%;height:520px;}
+  svg.lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+  svg.lines line{stroke:var(--line);stroke-width:2;}
+  .zone{
+    position:absolute;transform:translate(-50%,-50%);
+    width:150px;min-height:78px;
+    background:var(--charcoal-2);
+    border:1.5px solid var(--panel-line);
+    border-radius:9px;
+    padding:8px 9px 9px;
+    transition:.15s;
+  }
+  .zone.targetable{
+    border-color:var(--brass);box-shadow:0 0 0 3px rgba(201,138,62,.22);cursor:pointer;
+  }
+  .zone .zname{font-family:'Bitter',serif;font-weight:700;font-size:12.5px;color:var(--parchment);}
+  .zone .zeffect{
+    font-family:'JetBrains Mono',monospace;font-size:8.5px;color:var(--brass-light);
+    letter-spacing:.04em;text-transform:uppercase;margin-top:1px;min-height:11px;
+  }
+  .zone .ztokens{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;}
+  .token{
+    width:30px;height:30px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Bitter',serif;font-weight:700;font-size:12px;
+    border:1.5px solid; position:relative; cursor:default;
+    flex-shrink:0;
+  }
+  .token.merc{background:var(--merc-dim);border-color:var(--merc);color:#d9f2f2;}
+  .token.enemy{background:var(--enemy-dim);border-color:var(--enemy);color:#f6dcda;}
+  .token.dead{opacity:.28;filter:grayscale(1);}
+  .token.selectable{cursor:pointer;box-shadow:0 0 0 3px rgba(201,138,62,.55);}
+  .token .zzz{position:absolute;top:-7px;left:-6px;font-size:9px;}
+  .token .hpbar{
+    position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);
+    width:30px;height:4px;background:#000;border-radius:2px;overflow:hidden;border:1px solid #000;
+  }
+  .token .hpfill{height:100%;background:var(--good);}
+  .token .defshield{position:absolute;top:-6px;right:-4px;font-size:10px;}
+  .token .zzz{position:absolute;top:-7px;left:-6px;font-size:9px;}
+
+  .ladder{list-style:none;margin:0;padding:0;}
+  .ladder li{
+    display:flex;align-items:center;gap:9px;
+    padding:7px 8px;border-radius:6px;margin-bottom:4px;
+    font-size:12.5px;border:1px solid transparent;
+    opacity:.55;
+  }
+  .ladder li.current{background:rgba(201,138,62,.14);border-color:var(--brass);opacity:1;}
+  .ladder li.dead{text-decoration:line-through;opacity:.3;}
+  .ladder .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+  .ladder .dot.merc{background:var(--merc);}
+  .ladder .dot.enemy{background:var(--enemy);}
+  .ladder .iv{margin-left:auto;font-family:'JetBrains Mono',monospace;color:var(--parchment-dim);font-size:11px;}
+
+  .phase-banner{
+    font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--brass-light);background:rgba(201,138,62,.1);border:1px solid var(--brass);
+    border-radius:6px;padding:7px 10px;margin-bottom:10px;
+  }
+  .action-btn{
+    width:100%;text-align:left;display:flex;justify-content:space-between;align-items:center;
+    background:var(--charcoal-2);border:1.5px solid var(--panel-line);color:var(--parchment);
+    padding:9px 12px;border-radius:7px;margin-bottom:6px;cursor:pointer;font-size:12.5px;
+    font-family:'Inter',sans-serif;transition:.12s;
+  }
+  .action-btn:hover:not(:disabled){border-color:var(--brass);background:rgba(201,138,62,.09);}
+  .action-btn:disabled{opacity:.32;cursor:not-allowed;}
+  .action-btn .cost{font-family:'JetBrains Mono',monospace;color:var(--brass-light);font-size:11px;}
+  .action-btn small{display:block;color:var(--parchment-dim);font-weight:400;margin-top:2px;font-size:10.5px;}
+
+  #targetHint{
+    font-size:11.5px;color:var(--brass-light);margin:6px 0 8px;font-family:'JetBrains Mono',monospace;
+    display:none;
+  }
+  #cancelTargetBtn{
+    display:none;width:100%;background:transparent;border:1px solid var(--warn);color:var(--warn);
+    padding:7px;border-radius:7px;cursor:pointer;font-size:11.5px;margin-bottom:8px;
+  }
+  #undoBtn{
+    width:100%;background:transparent;border:1px solid var(--brass);color:var(--brass-light);
+    padding:8px;border-radius:7px;cursor:pointer;font-size:11.5px;margin-bottom:10px;
+    font-family:'JetBrains Mono',monospace;letter-spacing:.02em;
+  }
+  #undoBtn:hover{background:rgba(201,138,62,.12);}
+  #passBtn{
+    width:100%;background:transparent;border:1px dashed var(--panel-line);color:var(--parchment-dim);
+    padding:8px;border-radius:7px;cursor:pointer;font-size:11.5px;margin-top:2px;
+  }
+  #passBtn:hover{border-color:var(--parchment-dim);color:var(--parchment);}
+
+  #log{
+    max-height:150px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:11px;
+    line-height:1.6;color:var(--parchment-dim);
+  }
+  #log div{padding:2px 0;border-bottom:1px dotted var(--panel-line);}
+  #log div.evt-dmg{color:#e7b3ab;}
+  #log div.evt-round{color:var(--brass-light);font-weight:700;margin-top:6px;}
+  #log div.evt-death{color:var(--warn);}
+  #log div.evt-deploy{color:var(--merc);}
+
+  .overlay{
+    position:fixed;inset:0;background:rgba(10,10,12,.86);
+    display:none;align-items:center;justify-content:center;z-index:50;
+  }
+  .overlay.show{display:flex;}
+  .overlay-card{
+    background:var(--panel);border:1.5px solid var(--brass);border-radius:12px;
+    padding:32px 40px;text-align:center;max-width:340px;
+  }
+  .overlay-card h2{font-family:'Bitter',serif;font-size:26px;margin:0 0 8px;}
+  .overlay-card p{color:var(--parchment-dim);font-size:13px;margin:0 0 18px;}
+  .overlay-card button{
+    background:var(--brass);border:none;color:var(--ink);font-weight:700;
+    padding:10px 22px;border-radius:7px;cursor:pointer;font-family:'Inter',sans-serif;
+  }
+
+  .rules-note{font-size:10.5px;color:var(--parchment-dim);margin-top:10px;line-height:1.5;}
+
+  /* COMPANY / HAND */
+  .company-row{display:flex;justify-content:space-between;font-size:11.5px;color:var(--parchment-dim);margin-bottom:8px;font-family:'JetBrains Mono',monospace;}
+  .company-row b{color:var(--parchment);}
+  .chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+  .hand-chip{
+    background:var(--charcoal-2);border:1.5px solid var(--merc);border-radius:8px;
+    padding:7px 9px;font-size:11.5px;min-width:84px;
+  }
+  .hand-chip .hcname{font-family:'Bitter',serif;font-weight:700;font-size:12.5px;}
+  .hand-chip .hccls{color:var(--parchment-dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;}
+  .hand-chip .hcstats{color:var(--parchment-dim);font-size:9.5px;margin-top:2px;font-family:'JetBrains Mono',monospace;}
+  .hand-chip button{
+    margin-top:6px;width:100%;background:var(--brass);border:none;color:var(--ink);
+    font-weight:700;font-size:10.5px;padding:5px;border-radius:5px;cursor:pointer;
+  }
+  .hand-chip button:disabled{background:var(--panel-line);color:var(--parchment-dim);cursor:not-allowed;}
+  .defeated-chip{
+    background:transparent;border:1px dashed var(--enemy);color:var(--parchment-dim);
+    border-radius:8px;padding:5px 8px;font-size:10.5px;text-decoration:line-through;
+  }
+  .empty-note{font-size:11px;color:var(--parchment-dim);font-style:italic;}
+
+  /* ============================== MOBILE (vertical phone) ============================== */
+  @media(max-width:640px){
+    body{padding:8px;}
+    header{padding:10px 12px;gap:8px;}
+    .title-block h1{font-size:16px;}
+    .title-block .eyebrow{font-size:9px;}
+    .hdr-stats{gap:10px;}
+    .hdr-stat .num{font-size:17px;}
+    .hdr-stat .lbl{font-size:8.5px;}
+    #restartBtn{padding:3px 6px;font-size:8px;}
+    #headerBeginBtn{padding:7px 11px;font-size:11px;}
+    .expedition-box{padding:8px 10px;width:100%;}
+    .hdr-stats{width:100%;}
+    .card{padding:10px;}
+    .card h2{font-size:10px;margin-bottom:8px;padding-bottom:6px;}
+
+    /* Battlefield: shrink zones so 3-across rows never overlap on a narrow viewport */
+    #mapArea{height:400px;}
+    .zone{width:98px;min-height:60px;padding:5px 6px 6px;}
+    .zone .zname{font-size:10px;}
+    .zone .zeffect{font-size:7px;min-height:9px;}
+    .zone .ztokens{gap:3px;margin-top:4px;}
+    .token{width:23px;height:23px;font-size:10px;}
+    .token .hpbar{width:23px;height:3px;bottom:-5px;}
+    .rules-note{font-size:9.5px;}
+
+    /* Company / hand chips: 2-up instead of squeezed 3-4 up */
+    .hand-chip{min-width:0;flex:1 1 calc(50% - 6px);}
+
+    /* Merc cards already stack naturally (block-level divs) — just tighten for touch */
+    .mc-summary{font-size:10.5px;}
+    .exp-grid{grid-template-columns:1fr;}
+    .merc-card-header{padding:12px;}
+
+    /* Inventory rows: stack the select under the label instead of squeezing side by side */
+    .inv-item{flex-direction:column;align-items:stretch;gap:6px;}
+    .inv-item select{width:100%;padding:7px 8px;font-size:12.5px;}
+
+    .action-btn{padding:11px 12px;}
+    #passBtn, #undoBtn, #beginExpeditionBtn{padding:11px;}
+    .level-choice-btn{padding:12px;}
+  }
+
+  @media(max-width:380px){
+    .zone{width:84px;min-height:54px;}
+    .zone .zname{font-size:9px;}
+    #mapArea{height:360px;}
+    .hand-chip{flex:1 1 100%;}
+    .battle-columns{grid-template-columns:1fr;}
+  }
+
+    .zone-info-row{display:flex;gap:3px;flex-wrap:wrap;margin:2px 0 3px}
+    .zone-badge{font-family:'JetBrains Mono',monospace;font-size:7px;line-height:1;padding:2px 3px;border:1px solid var(--panel-line);border-radius:3px;color:var(--parchment-dim);background:#15171b}
+    .zone-badge.cap{border-color:var(--brass);color:var(--brass-light)}
+    .zone-badge.difficult{border-color:#a47b45;color:#d7b27a}
+    .zone-badge.hazard{border-color:#9c4f43;color:#e08c7d}
+    .zone-badge.cover{border-color:#586f5b;color:#9ec7a4}
+    .zone-badge.high{border-color:#6e658b;color:#b8add8}
+    .zone-badge.rally{border-color:#8f7a3e;color:#dbc879}
+    .zone-badge.watch{border-color:#6d7f91;color:#a9c0d7}
+    .zone-badge.objective{border-color:#b98a3a;color:#e4bd6f}
+    .zone-occ{font-family:'JetBrains Mono',monospace;font-size:7px;color:var(--parchment-dim);display:flex;justify-content:space-between;gap:4px;margin:2px 0}
+    .zone-occ strong{color:var(--parchment)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="title-block">
+      <div class="eyebrow">Prototype C · Zone UI & Inspection Improvements v1.2.1</div>
+      <div class="title-row">
+        <h1>Mercenary Company — Campaign</h1>
+        <button id="restartBtn">↻ Restart</button>
+        <span id="zoneEngineStatus" style="font-family:'JetBrains Mono',monospace;font-size:9px;padding:4px 7px;border:1px solid var(--panel-line);border-radius:5px;color:var(--parchment-dim);">ZE TERRAIN READY</span>
+      </div>
+    </div>
+    <div class="hdr-stats">
+      <div class="expedition-box" id="expeditionBox" style="display:none;">
+        <div class="expedition-box-top">
+          <div class="hdr-stat"><div class="num" id="battleNum">1</div><div class="lbl">Run</div></div>
+          <div class="hdr-stat"><div class="num" id="goldNum">100</div><div class="lbl">Gold</div></div>
+          <button id="headerBeginBtn">Begin Run →</button>
+        </div>
+      </div>
+      <div class="hdr-stat" id="roundStatWrap">
+        <div class="num" id="roundNum">1</div><div class="lbl">Round</div>
+      </div>
+      <div class="hdr-stat" id="cpStatWrap">
+        <div class="num" id="cpNum">5</div>
+        <div class="cp-pips" id="cpPips"></div>
+        <div class="lbl">Command Pts</div>
+      </div>
+      <div class="hdr-initiative-strip" id="hdrInitiativeStrip" style="display:none;"></div>
+    </div>
+  </header>
+
+  <div id="recruitSelectScreen" class="card">
+    <h2>Choose Your Company</h2>
+    <div id="recruitSelectBody"></div>
+  </div>
+
+  <div id="companyScreen" class="card" style="display:none">
+    <h2>Company Management</h2>
+    <div id="companyMgmtBody"></div>
+  </div>
+
+  <div id="resolutionScreen" class="card" style="display:none">
+    <h2 id="resolutionTitle">Battle Resolution</h2>
+    <div id="resolutionBody"></div>
+  </div>
+
+  <div id="runMapScreen" class="card" style="display:none">
+    <h2>Roguelike Map</h2>
+    <div id="runMapBody"></div>
+  </div>
+
+  <div id="rewardScreen" class="card" style="display:none">
+    <h2>Choose Your Reward</h2>
+    <div id="rewardBody"></div>
+  </div>
+
+  <div id="merchantScreen" class="card" style="display:none">
+    <h2>Merchant</h2>
+    <div id="merchantBody"></div>
+  </div>
+
+  <div id="restScreen" class="card" style="display:none">
+    <h2>Rest</h2>
+    <div id="restBody"></div>
+  </div>
+
+  <div id="eventScreen" class="card" style="display:none">
+    <h2 id="eventTitle">Event</h2>
+    <div id="eventBody"></div>
+  </div>
+
+  <div id="runEndScreen" class="card" style="display:none">
+    <h2 id="runEndTitle">Run Complete</h2>
+    <div id="runEndBody"></div>
+  </div>
+
+  <div id="battleScreen" style="display:none">
+  <div class="grid battle-grid">
+    <div class="card map-card">
+      <h2 id="battlefieldTitle">Battlefield — Generated Expedition</h2>
+      <div id="mapArea">
+        <svg class="lines" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="section-toggle" id="expDetailsToggle"><span>Expedition Details</span><span class="caret" id="expDetailsCaret">▼</span></div>
+      <div class="rules-note" id="expDetailsBody" style="display:none;">Camp: Rally +2 Def (both types) · Forest / Ruins: Cover (+4 Def vs ranged attacks from outside) · Hill: High Ground (+1 range) · Watchtower: unlimited ranged targeting, 1 occupant max<br>Each round opens with a Deployment phase (Pre-Battle before Round 1, then "after Round N" before every round after) sharing its 5 CP with the round that follows. Mercenaries deployed in that phase are ready to act as soon as combat begins. Each unit then acts once per round, in initiative order, spending up to 3 CP that turn.<br>An Ambusher starts hidden in one non-Camp, non-Watchtower zone. It stays invisible and untargetable until a mercenary moves into its zone, at which point it strikes that mercenary immediately for free, then joins the fight as a normal visible enemy from then on.<br>Damage uses an Attack-vs-Defense effectiveness curve: Defense = Attack → 50% effectiveness, Defense = 0 → 100%, Defense = 2×Attack → 0%. Negative Defense (from debuffs or armor-piercing skills) can push effectiveness above 100%.</div>
+    </div>
+
+    <div class="sidebar-wrapper">
+      <div class="card" id="actionCard">
+        <h2>Orders</h2>
+        <div id="actionBody"></div>
+      </div>
+
+      <div class="battle-columns">
+        <div class="card">
+          <h2>Expedition</h2>
+          <div id="companyBody"></div>
+        </div>
+        <div class="card">
+          <h2>Hostiles</h2>
+          <div id="hostilesBody"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card log-card">
+      <h2>Field Report</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+  </div>
+</div>
+
+<script>
+/* ============================== DATA ============================== */
+
+let ZONE_POS = {
+  watchtower:{x:50,y:8}, hill:{x:50,y:27}, forest:{x:24,y:47}, ruins:{x:76,y:47},
+  road:{x:28,y:68}, courtyard:{x:72,y:68}, camp:{x:50,y:90},
+};
+
+/*
+ * ZONE ENGINE INTEGRATION v0.9.0
+ * --------------------------------
+ * This deterministic EncounterDefinition is the first production-host integration fixture.
+ * The existing game still consumes its familiar ZONES shape, but that shape is now DERIVED
+ * from a canonical encounter graph rather than being the connectivity authority itself.
+ */
+const ZONE_ENGINE_REFERENCE_ENCOUNTER = {
+  encounterId:'PROTOTYPE_C_REFERENCE_01',
+  schemaVersion:'1.0.0',
+  contentVersion:'0.9.0',
+  topologyProfile:{id:'TOPO_REFERENCE_SEVEN_ZONE',version:'1.0.0'},
+  entry:{zoneId:'camp'},
+  zones:[
+    {zoneId:'camp',name:'Camp',effect:'rally',capacityPerSide:null,tags:['CAMP']},
+    {zoneId:'road',name:'Road',effect:null,capacityPerSide:null,tags:[]},
+    {zoneId:'courtyard',name:'Courtyard',effect:null,capacityPerSide:null,tags:[]},
+    {zoneId:'forest',name:'Forest',effect:'cover',capacityPerSide:null,tags:['COVER']},
+    {zoneId:'ruins',name:'Ruins',effect:'cover',difficult:true,capacityPerSide:null,tags:['COVER','DIFFICULT']},
+    {zoneId:'hill',name:'Hill',effect:'highground',capacityPerSide:null,tags:['HIGH_GROUND']},
+    {zoneId:'watchtower',name:'Watchtower',effect:'watchtower',capacityPerSide:1,tags:['WATCHTOWER']}
+  ],
+  edges:[
+    ['camp','road'],['camp','courtyard'],
+    ['road','forest'],['road','courtyard'],
+    ['courtyard','ruins'],
+    ['forest','hill'],['ruins','hill'],
+    ['hill','watchtower']
+  ],
+  objective:{
+    objectiveId:'OBJECTIVE_ELIMINATE_HOSTILES',
+    type:'OB_ELIMINATE_ALL_HOSTILES',
+    priority:'PRIMARY'
+  }
+};
+
+function buildZoneViewFromEncounter(encounter){
+  const zones={};
+  encounter.zones.forEach(z=>{
+    zones[z.zoneId]={
+      name:z.name,
+      effect:z.effect||null,
+      difficult:!!(z.terrain?.difficult ?? z.difficult),
+      hazardous:!!z.terrain?.hazardous,
+      terrain:{
+        difficult:!!(z.terrain?.difficult ?? z.difficult),
+        hazardous:!!z.terrain?.hazardous
+      },
+      features:[...(z.features||[])],
+      structural:structuredClone(z.structural||{}),
+      cap:z.capacityPerSide,
+      tags:[...(z.tags||[])],
+      adj:[]
+    };
+  });
+  encounter.edges.forEach(([a,b])=>{
+    if(!zones[a] || !zones[b]) throw new Error(`Encounter edge references unknown zone: ${a}<->${b}`);
+    zones[a].adj.push(b);
+    zones[b].adj.push(a);
+  });
+  return zones;
+}
+
+let CURRENT_ZONE_ENCOUNTER = structuredClone(ZONE_ENGINE_REFERENCE_ENCOUNTER);
+let ZONES = buildZoneViewFromEncounter(CURRENT_ZONE_ENCOUNTER);
+
+
+/* ============================== PROCEDURAL ZONE GENERATOR v1.0.0 ============================== */
+
+function zeHashSeed(str){
+  let h=2166136261>>>0;
+  for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); }
+  return h>>>0;
+}
+function zeRng(seed){
+  let a=zeHashSeed(seed);
+  return function(){
+    a|=0; a=(a+0x6D2B79F5)|0;
+    let t=Math.imul(a^(a>>>15),1|a);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296;
+  };
+}
+function zePick(rng,arr){ return arr[Math.floor(rng()*arr.length)]; }
+function zeInt(rng,min,max){ return min+Math.floor(rng()*(max-min+1)); }
+
+class PrototypeCZoneGenerator {
+  static generate({node,difficulty,bossMode=false,runNumber=1}){
+    const nodeId=node?.id || (bossMode?'boss':'combat');
+    const seed=`run-${runNumber}|node-${nodeId}|${difficulty}|${bossMode?'boss':'standard'}`;
+    const rng=zeRng(seed);
+
+    const profilePool = bossMode
+      ? ['gauntlet','hub','convergence']
+      : difficulty==='hard'
+        ? ['branch','fork','convergence','hub','gauntlet']
+        : ['corridor','branch','fork','gauntlet'];
+
+    const topology = zePick(rng,profilePool);
+    const zoneCount = bossMode ? zeInt(rng,8,10) : difficulty==='hard' ? zeInt(rng,7,9) : zeInt(rng,5,7);
+    const graph=this._buildGraph(topology,zoneCount,rng);
+    const effects=this._assignEffects(graph.nodes.length,rng,bossMode);
+
+    const zones=graph.nodes.map((n,i)=>{
+      const effect=i===0 ? 'rally' : effects[i] || null;
+      const difficult=i===0 ? false : rng()<0.28;
+      const hazardous=i===0 ? false : rng()<0.16;
+
+      const features=[];
+      if(effect==='cover') features.push('COVER');
+      if(effect==='highground') features.push('HIGH_GROUND');
+      if(effect==='rally') features.push('RALLY');
+      if(effect==='watchtower') features.push('WATCHTOWER');
+
+      const capacityPerSide=i===0 ? 3 : (features.includes('WATCHTOWER') ? 1 : zeInt(rng,1,3));
+
+      return {
+        zoneId:n.id,
+        name:i===0?'Camp':(i===graph.nodes.length-1?'Objective':`Zone ${i+1}`),
+        capacityPerSide,
+        terrain:{difficult,hazardous},
+        features,
+        structural:{entry:i===0,objective:i===graph.nodes.length-1},
+        effect,
+        difficult,
+        tags:[
+          ...(i===0?['CAMP']:[]),
+          ...(i===graph.nodes.length-1?['OBJECTIVE']:[]),
+          ...features,
+          ...(difficult?['DIFFICULT']:[]),
+          ...(hazardous?['HAZARDOUS']:[])
+        ]
+      };
+    });
+
+    const challengeBundle=this._buildChallenges({zones,rng,difficulty,bossMode});
+
+    return {
+      encounterId:`PC_${runNumber}_${nodeId}_${zeHashSeed(seed)}`,
+      seed,
+      schemaVersion:'1.0.0',
+      contentVersion:'1.1.0',
+      topologyProfile:{id:`TOPO_${topology.toUpperCase()}`,version:'1.0.0'},
+      entry:{zoneId:zones[0].zoneId},
+      zones,
+      edges:graph.edges,
+      layout:Object.fromEntries(graph.nodes.map(n=>[n.id,{x:n.x,y:n.y}])),
+      challengeProfile:challengeBundle.profile,
+      challenges:challengeBundle.challenges,
+      objective:{
+        objectiveId:'OBJECTIVE_COMPLETE_REQUIRED_CHALLENGES',
+        type:'OB_COMPLETE_REQUIRED_CHALLENGES',
+        priority:'PRIMARY',
+        requiredChallengeIds:challengeBundle.challenges.filter(c=>c.required).map(c=>c.challengeId)
+      }
+    };
+  }
+
+  static _buildChallenges({zones,rng,difficulty,bossMode}){
+    const objectiveZoneId=zones[zones.length-1].zoneId;
+
+    // First production challenge profiles:
+    // Normal: either Clear Hostiles OR Breakthrough.
+    // Hard/Elite: Clear Hostiles + Reach Objective.
+    // Boss: Clear Hostiles + Reach Objective.
+    let profile;
+    if(bossMode) profile='CLEAR_AND_REACH';
+    else if(difficulty==='hard') profile='CLEAR_AND_REACH';
+    else profile = rng()<0.65 ? 'CLEAR_HOSTILES' : 'BREAKTHROUGH';
+
+    const challenges=[];
+
+    if(profile==='CLEAR_HOSTILES' || profile==='CLEAR_AND_REACH'){
+      challenges.push({
+        challengeId:'CHALLENGE_CLEAR_HOSTILES',
+        challengeType:'CH_CLEAR',
+        title:'Clear Hostiles',
+        description:'Defeat all hostile units in the expedition.',
+        required:true,
+        condition:{
+          conditionType:'CO_ALL_HOSTILES_DEFEATED'
+        }
+      });
+    }
+
+    if(profile==='BREAKTHROUGH' || profile==='CLEAR_AND_REACH'){
+      challenges.push({
+        challengeId:'CHALLENGE_REACH_OBJECTIVE',
+        challengeType:'CH_REACH',
+        title:'Reach Objective',
+        description:'Move at least one living mercenary into the Objective zone.',
+        required:true,
+        targetZoneId:objectiveZoneId,
+        condition:{
+          conditionType:'CO_ZONE_REACHED',
+          targetZoneId:objectiveZoneId
+        }
+      });
+    }
+
+    return {profile,challenges};
+  }
+
+  static _assignEffects(n,rng,bossMode){
+    const effects=Array(n).fill(null);
+    if(n>2) effects[1+Math.floor(rng()*(n-2))]='cover';
+    if(n>4) effects[1+Math.floor(rng()*(n-2))]='highground';
+    if(n>=7 && rng()<0.65) effects[n-2]='watchtower';
+    if(bossMode && n>=8) effects[n-2]='watchtower';
+    return effects;
+  }
+
+  static _buildGraph(topology,n,rng){
+    const nodes=[], edges=[], seenEdges=new Set();
+    const add=(id,x,y)=>nodes.push({id,x,y});
+    const edge=(a,b)=>{
+      const key=[a,b].sort().join('|');
+      if(a!==b && !seenEdges.has(key)){seenEdges.add(key);edges.push([a,b]);}
+    };
+
+    if(topology==='corridor' || topology==='gauntlet'){
+      for(let i=0;i<n;i++){
+        const x=50 + (topology==='gauntlet' ? (i%2===0?-12:12) : 0);
+        const y=90 - (82*i/(n-1));
+        add(`z${i}`,x,y);
+        if(i>0) edge(`z${i-1}`,`z${i}`);
+      }
+      if(topology==='gauntlet' && n>=7 && rng()<0.5) edge('z1','z3');
+    }
+    else if(topology==='branch'){
+      add('z0',50,91); add('z1',50,72); edge('z0','z1');
+      const middle=n-3;
+      for(let i=0;i<middle;i++){
+        const id=`z${i+2}`;
+        const x=18 + (64*(i/Math.max(1,middle-1)));
+        add(id,x,47);
+        edge('z1',id);
+      }
+      add(`z${n-1}`,50,10);
+      for(let i=2;i<n-1;i++) edge(`z${i}`,`z${n-1}`);
+    }
+    else if(topology==='fork'){
+      add('z0',50,91); add('z1',50,73); edge('z0','z1');
+      const final=`z${n-1}`;
+      const internal=n-3;
+      const upper=Math.ceil(internal/2);
+      let prevL='z1', prevR='z1', idx=2;
+      for(let i=0;i<upper && idx<n-1;i++,idx++){
+        add(`z${idx}`,30,57-i*18); edge(prevL,`z${idx}`); prevL=`z${idx}`;
+      }
+      while(idx<n-1){
+        const step=idx-2-upper;
+        add(`z${idx}`,70,57-step*18); edge(prevR,`z${idx}`); prevR=`z${idx}`; idx++;
+      }
+      add(final,50,10); edge(prevL,final); edge(prevR,final);
+    }
+    else if(topology==='hub'){
+      add('z0',50,92); add('z1',50,58); edge('z0','z1');
+      const final=`z${n-1}`;
+      for(let i=2;i<n-1;i++){
+        const count=n-3;
+        const ang=(-Math.PI) + (Math.PI*(i-2)/Math.max(1,count-1));
+        add(`z${i}`,50+33*Math.cos(ang),48+25*Math.sin(ang));
+        edge('z1',`z${i}`);
+      }
+      add(final,50,9);
+      const spokes=nodes.filter(x=>x.id!=='z0'&&x.id!=='z1'&&x.id!==final);
+      spokes.forEach((x,i)=>{ if(i%2===0 || spokes.length<=2) edge(x.id,final); });
+      if(!edges.some(e=>e.includes(final))) edge('z1',final);
+    }
+    else { // convergence
+      add('z0',50,92);
+      const mid=n-2;
+      for(let i=1;i<=mid;i++){
+        const x=18 + 64*((i-1)/Math.max(1,mid-1));
+        add(`z${i}`,x,52);
+        edge('z0',`z${i}`);
+      }
+      add(`z${n-1}`,50,9);
+      for(let i=1;i<=mid;i++) edge(`z${i}`,`z${n-1}`);
+    }
+    return {nodes,edges};
+  }
+
+  static validate(encounter){
+    if(!encounter || !encounter.zones || encounter.zones.length<5 || encounter.zones.length>10) return false;
+    const ids=new Set(encounter.zones.map(z=>z.zoneId));
+    if(!ids.has(encounter.entry?.zoneId)) return false;
+    for(const [a,b] of encounter.edges){ if(!ids.has(a)||!ids.has(b)) return false; }
+    const adjacency={};
+    ids.forEach(id=>adjacency[id]=[]);
+    encounter.edges.forEach(([a,b])=>{adjacency[a].push(b);adjacency[b].push(a);});
+    const seen=new Set([encounter.entry.zoneId]), q=[encounter.entry.zoneId];
+    while(q.length){
+      const a=q.shift();
+      adjacency[a].forEach(b=>{if(!seen.has(b)){seen.add(b);q.push(b);}});
+    }
+    return seen.size===ids.size;
+  }
+}
+
+function applyGeneratedEncounter(encounter){
+  if(!PrototypeCZoneGenerator.validate(encounter)){
+    console.error('Generated Zone Engine encounter failed validation; using deterministic reference encounter.');
+    encounter=structuredClone(ZONE_ENGINE_REFERENCE_ENCOUNTER);
+    encounter.layout=structuredClone(ZONE_POS);
+  }
+  CURRENT_ZONE_ENCOUNTER=structuredClone(encounter);
+  ZONES=buildZoneViewFromEncounter(CURRENT_ZONE_ENCOUNTER);
+  ZONE_POS=structuredClone(encounter.layout || ZONE_POS);
+
+  const title=document.getElementById('battlefieldTitle');
+  if(title){
+    const topo=(encounter.topologyProfile?.id || 'TOPO_UNKNOWN').replace('TOPO_','').replaceAll('_',' ');
+    title.textContent=`Battlefield — ${encounter.zones.length} Zones · ${topo}`;
+  }
+}
+
+function entryZoneId(){ return CURRENT_ZONE_ENCOUNTER?.entry?.zoneId || Object.keys(ZONES)[0]; }
+function zoneHasEffect(zoneId,effect){ return ZONES[zoneId]?.effect===effect; }
+function zoneIdsByEffect(effect){ return Object.keys(ZONES).filter(id=>zoneHasEffect(id,effect)); }
+function hostileSpawnZoneIds(){
+  const entry=entryZoneId();
+  const ids=Object.keys(ZONES).filter(id=>id!==entry);
+  const distant=ids.filter(id=>bfsDistance(entry,id)>=2);
+  return distant.length ? distant : ids;
+}
+function ambushSpawnZoneIds(){
+  const ids=hostileSpawnZoneIds().filter(id=>ZONES[id].cap!==1);
+  return ids.length ? ids : hostileSpawnZoneIds();
+}
+function bossSpawnZoneIds(){
+  const entry=entryZoneId();
+  return Object.keys(ZONES)
+    .filter(id=>id!==entry)
+    .sort((a,b)=>bfsDistance(entry,b)-bfsDistance(entry,a))
+    .slice(0,2);
+}
+function sideOccupancy(zoneId,side,excludeId=null){
+  return livingUnits(side).filter(u=>u.zone===zoneId && u.id!==excludeId).length;
+}
+function zoneCapacityAllows(unit,zoneId){
+  const cap=ZONES[zoneId]?.cap;
+  return cap==null ? true : sideOccupancy(zoneId,unit.side,unit.id)<cap;
+}
+function zoneHasFeature(zoneId,feature){ return (ZONES[zoneId]?.features||[]).includes(feature); }
+function zoneIsDifficult(zoneId){ return !!ZONES[zoneId]?.terrain?.difficult; }
+function zoneIsHazardous(zoneId){ return !!ZONES[zoneId]?.terrain?.hazardous; }
+function zoneFriendlyOccupancy(zoneId){ return livingUnits('merc').filter(u=>u.zone===zoneId).length; }
+function zoneEnemyOccupancy(zoneId){ return livingUnits('enemy').filter(u=>u.zone===zoneId).length; }
+function zoneIsGlobalRange(zoneId){ return zoneHasFeature(zoneId,'WATCHTOWER') || zoneHasEffect(zoneId,'watchtower'); }
+
+function applyHazardOnEntry(unit,zoneId){
+  if(!zoneIsHazardous(zoneId) || !unit.alive) return;
+  const damage=2;
+  unit.hp=Math.max(0,unit.hp-damage);
+  log(`${unit.name} suffers ${damage} Hazard damage entering ${ZONES[zoneId].name}.`,'death');
+  if(unit.hp<=0 && unit.alive){
+    unit.alive=false;
+    if(unit.side==='merc'){ S.defeated.push(unit.id); }
+    if(ZONE_SESSION){ ZONE_SESSION.submitEntityDefeated(unit.id,unit.side); }
+    log(`${unit.name} has been defeated by hazardous terrain!`,'death');
+  }
+}
+function zoneAddsRange(zoneId){ return (zoneHasFeature(zoneId,'HIGH_GROUND') || zoneHasEffect(zoneId,'highground')) ? 1 : 0; }
+
+
+/* ============================== ZONE ENGINE CHALLENGE FRAMEWORK v1.1.0 ============================== */
+
+const CHALLENGE_STATE = Object.freeze({
+  INACTIVE:'INACTIVE',
+  ACTIVE:'ACTIVE',
+  COMPLETED:'COMPLETED',
+  FAILED:'FAILED'
+});
+
+class PrototypeCChallengeRuntime {
+  constructor(encounter){
+    this.encounterId=encounter.encounterId;
+    this.definitions=structuredClone(encounter.challenges || []);
+    this.states=Object.fromEntries(
+      this.definitions.map(c=>[
+        c.challengeId,
+        {state:CHALLENGE_STATE.ACTIVE,completedSequence:null,failedSequence:null}
+      ])
+    );
+    this.sequence=0;
+    this.events=[];
+  }
+
+  evaluate(hostState){
+    for(const challenge of this.definitions){
+      const runtime=this.states[challenge.challengeId];
+      if(!runtime || runtime.state!==CHALLENGE_STATE.ACTIVE) continue;
+
+      let complete=false;
+
+      switch(challenge.challengeType){
+        case 'CH_CLEAR':
+          complete = hostState.livingHostiles===0;
+          break;
+
+        case 'CH_REACH':
+          complete = hostState.livingMercZones.includes(challenge.targetZoneId);
+          break;
+
+        default:
+          // Unknown Challenge Types remain ACTIVE rather than completing silently.
+          complete=false;
+          break;
+      }
+
+      if(complete){
+        runtime.state=CHALLENGE_STATE.COMPLETED;
+        runtime.completedSequence=++this.sequence;
+        this.events.push({
+          eventType:'EV_CHALLENGE_COMPLETED',
+          sequence:this.sequence,
+          challengeId:challenge.challengeId
+        });
+      }
+    }
+
+    return this.snapshot();
+  }
+
+  failActive(reason){
+    for(const challenge of this.definitions){
+      const runtime=this.states[challenge.challengeId];
+      if(runtime?.state===CHALLENGE_STATE.ACTIVE){
+        runtime.state=CHALLENGE_STATE.FAILED;
+        runtime.failedSequence=++this.sequence;
+        this.events.push({
+          eventType:'EV_CHALLENGE_FAILED',
+          sequence:this.sequence,
+          challengeId:challenge.challengeId,
+          reason
+        });
+      }
+    }
+    return this.snapshot();
+  }
+
+  requiredComplete(){
+    const required=this.definitions.filter(c=>c.required);
+    return required.length>0 && required.every(c=>this.states[c.challengeId]?.state===CHALLENGE_STATE.COMPLETED);
+  }
+
+  anyRequiredFailed(){
+    return this.definitions
+      .filter(c=>c.required)
+      .some(c=>this.states[c.challengeId]?.state===CHALLENGE_STATE.FAILED);
+  }
+
+  snapshot(){
+    return {
+      encounterId:this.encounterId,
+      definitions:structuredClone(this.definitions),
+      states:structuredClone(this.states),
+      events:structuredClone(this.events),
+      requiredComplete:this.requiredComplete(),
+      anyRequiredFailed:this.anyRequiredFailed()
+    };
+  }
+}
+
+class PrototypeCGameHostAdapter {
+  constructor(encounterDefinition){
+    this.definition=structuredClone(encounterDefinition);
+    this.eventSequence=0;
+    this.events=[];
+    this.status='READY';
+    this.hostileIds=new Set();
+    this.challengeRuntime=new PrototypeCChallengeRuntime(this.definition);
+  }
+
+  start(hostileIds=[]){
+    if(this.status!=='READY') throw new Error('Zone session may only start from READY.');
+    this.hostileIds=new Set(hostileIds);
+    this.status='ACTIVE';
+    return this.snapshot();
+  }
+
+  neighbors(zoneId){
+    const zone=ZONES[zoneId];
+    if(!zone) throw new Error(`Unknown zone '${zoneId}'.`);
+    return zone.adj.slice();
+  }
+
+  canTraverse(fromZoneId,toZoneId){
+    return !!ZONES[fromZoneId] && ZONES[fromZoneId].adj.includes(toZoneId);
+  }
+
+  submitZoneEntered(entityId,fromZoneId,toZoneId,{forced=false}={}){
+    if(this.status!=='ACTIVE') return null;
+    if(!forced && fromZoneId!==toZoneId && !this.canTraverse(fromZoneId,toZoneId)){
+      throw new Error(`Zone Engine rejected traversal ${fromZoneId} -> ${toZoneId}.`);
+    }
+    return this._record('EV_ZONE_ENTERED',{entityId,fromZoneId,toZoneId,forced});
+  }
+
+  submitEntityDefeated(entityId,side){
+    if(this.status!=='ACTIVE') return null;
+    if(side==='enemy') this.hostileIds.delete(entityId);
+    return this._record('EV_ENTITY_DEFEATED',{entityId,side});
+  }
+
+  evaluateEncounter({livingHostiles,livingMercZones=[]}){
+    if(this.status!=='ACTIVE') return this.status;
+
+    const challengeState=this.challengeRuntime.evaluate({
+      livingHostiles,
+      livingMercZones:[...livingMercZones]
+    });
+
+    if(challengeState.requiredComplete){
+      this.status='COMPLETED';
+      this._record('EV_OBJECTIVE_COMPLETED',{
+        objectiveId:this.definition.objective.objectiveId,
+        requiredChallengeIds:this.definition.objective.requiredChallengeIds || []
+      });
+      this._record('EV_ENCOUNTER_COMPLETED',{outcome:'SUCCESS'});
+    } else if(challengeState.anyRequiredFailed){
+      this.status='FAILED';
+      this._record('EV_ENCOUNTER_FAILED',{reason:'REQUIRED_CHALLENGE_FAILED'});
+    }
+
+    return this.status;
+  }
+
+  fail(reason){
+    if(this.status==='ACTIVE'){
+      this.challengeRuntime.failActive(reason);
+      this.status='FAILED';
+      this._record('EV_ENCOUNTER_FAILED',{reason});
+    }
+    return this.status;
+  }
+
+  getChallengeSnapshot(){
+    return this.challengeRuntime.snapshot();
+  }
+
+  capacityAllows(zoneId,sideCount){
+    const cap=ZONES[zoneId]?.cap;
+    return cap==null ? true : sideCount < cap;
+  }
+
+  _record(eventType,payload){
+    const event={eventId:`ZE_EVENT_${++this.eventSequence}`,eventType,sequence:this.eventSequence,payload};
+    this.events.push(event);
+    return structuredClone(event);
+  }
+
+  snapshot(){
+    return {
+      encounterId:this.definition.encounterId,
+      status:this.status,
+      eventSequence:this.eventSequence,
+      events:structuredClone(this.events),
+      challenges:this.getChallengeSnapshot()
+    };
+  }
+}
+
+let ZONE_SESSION = null;
+
+function runZoneEngineIntegrationSelfTest(){
+  const results=[];
+  const test=(name,fn)=>{
+    try{ fn(); results.push({name,pass:true}); }
+    catch(error){ results.push({name,pass:false,error:error.message}); }
+  };
+
+  test('Encounter has seven canonical zones',()=>{
+    if(ZONE_ENGINE_REFERENCE_ENCOUNTER.zones.length!==7) throw new Error('Expected 7 zones.');
+  });
+  test('Camp connects to Road',()=>{
+    const a=new PrototypeCGameHostAdapter(ZONE_ENGINE_REFERENCE_ENCOUNTER);
+    if(!a.canTraverse('camp','road')) throw new Error('camp->road should be legal.');
+  });
+  test('Camp cannot skip to Hill',()=>{
+    const a=new PrototypeCGameHostAdapter(ZONE_ENGINE_REFERENCE_ENCOUNTER);
+    if(a.canTraverse('camp','hill')) throw new Error('camp->hill should be illegal.');
+  });
+  test('Watchtower canonical capacity is per-side 1',()=>{
+    const a=new PrototypeCGameHostAdapter(ZONE_ENGINE_REFERENCE_ENCOUNTER);
+    if(!a.capacityAllows('watchtower',0)) throw new Error('First same-side occupant should fit.');
+    if(a.capacityAllows('watchtower',1)) throw new Error('Second same-side occupant should not fit.');
+  });
+  test('Zone event sequencing is deterministic',()=>{
+    const a=new PrototypeCGameHostAdapter(ZONE_ENGINE_REFERENCE_ENCOUNTER);
+    a.start(['enemy_1']);
+    const e=a.submitZoneEntered('merc_1','camp','road');
+    if(e.sequence!==1 || e.eventType!=='EV_ZONE_ENTERED') throw new Error('Unexpected first event.');
+  });
+  test('Current kill-all objective completes through adapter',()=>{
+    const a=new PrototypeCGameHostAdapter(ZONE_ENGINE_REFERENCE_ENCOUNTER);
+    a.start(['enemy_1']);
+    if(a.evaluateEncounter({livingHostiles:1})!=='ACTIVE') throw new Error('Should remain active.');
+    a.submitEntityDefeated('enemy_1','enemy');
+    if(a.evaluateEncounter({livingHostiles:0})!=='COMPLETED') throw new Error('Should complete.');
+  });
+
+  const passed=results.filter(r=>r.pass).length;
+  const status=document.getElementById('zoneEngineStatus');
+  if(status){
+    status.textContent=`ZE ${passed}/${results.length} PASS`;
+    status.style.borderColor=passed===results.length?'var(--good)':'var(--warn)';
+    status.style.color=passed===results.length?'var(--good)':'var(--warn)';
+  }
+  console.group('Zone Engine Integration Self-Test v0.9.0');
+  results.forEach(r=>console[r.pass?'log':'error'](`${r.pass?'PASS':'FAIL'} — ${r.name}${r.error?': '+r.error:''}`));
+  console.groupEnd();
+  return results;
+}
+
+const ZONE_EFFECT_LABEL = {
+  rally:'Rally · +2 Def', cover:'Cover · +4 Def vs ranged',
+  highground:'High Ground · +1 range', watchtower:'Watchtower · unlimited range, cap 1',
+};
+
+// Six weapon types, each with a basic attack (always available), a tier-2 skill (needs Expertise 2+),
+// and a tier-3 upgraded skill (needs Expertise 3).
+// dmgMin/dmgMax: the weapon's damage ROLL range (the only random element in combat).
+// dmgType: 'physical' or 'magical' — selects which Attack/Defense pair the effectiveness formula uses.
+// Shared skill templates — the mechanical SHAPE every named weapon's signature skill can draw
+// from (label, range, aoe, damage type). Individual weapons in WEAPON_CATALOG supply their own
+// damage numbers, CP cost, expertise tier requirement, and description — so the SAME template
+// (e.g. 'sweep') can appear on multiple different weapons at different tiers and power levels,
+// which is exactly how a Bone Axe's tier-1 Sweep and a Steel Longsword's tier-2 Sweep coexist.
+const SKILL_TEMPLATES = {
+  lunge:   {label:'Lunge',         range:1, aoe:false, dmgType:'physical'},
+  aimed:   {label:'Aimed Shot',    range:3, aoe:false, dmgType:'physical'},
+  sweep:   {label:'Sweep',         range:0, aoe:true,  dmgType:'physical'},
+  rend:    {label:'Rend',          range:0, aoe:false, dmgType:'physical'},
+  riposte: {label:'Riposte',       range:0, aoe:false, dmgType:'physical'},
+  piercing:{label:'Piercing Shot', range:3, aoe:true,  dmgType:'physical', maxTargets:2},
+  hex:     {label:'Hex',           range:2, aoe:false, dmgType:'magical'},
+  volley:  {label:'Volley',        range:2, aoe:true,  dmgType:'magical'},
+  burst:   {label:'Burst',         range:1, aoe:true,  dmgType:'magical'},
+  // Range-0 magic counterparts to hex/volley/burst, added so Staff/Totem (both basicRange:0)
+  // have their own eligible pool instead of borrowing the inherently-ranged trio above.
+  // Mirrors the physical melee set (sweep=AoE, rend=single+ignoreDef, riposte=self-buff) with
+  // a magical AoE/debuff/self-buff trio instead.
+  smolder: {label:'Smolder',       range:0, aoe:true,  dmgType:'magical'},
+  brand:   {label:'Brand',         range:0, aoe:false, dmgType:'magical'},
+  heal:    {label:'Heal',          range:0, aoe:false, dmgType:'magical', heal:true},
+  // Formerly a guaranteed, universal, non-pool action (buildFreeStrikeAction). Now a normal
+  // pool entry like everything else: tier-gated, damage-scaled -- but cost stays fixed at 0
+  // (see ZERO_COST_TEMPLATES below) since "free but low damage" is the entire identity of this
+  // skill, and it's no longer guaranteed to appear on any given weapon (rolled like any other).
+  quickstrike: {label:'Quick Strike', range:0, aoe:false, dmgType:'physical', freeStrike:true},
+  quickshot:   {label:'Quick Shot',   range:1, aoe:false, dmgType:'physical', freeStrike:true},
+  quickshock:  {label:'Quick Shock',  range:0, aoe:false, dmgType:'magical',  freeStrike:true},
+  quickbolt:   {label:'Quick Bolt',   range:2, aoe:false, dmgType:'magical',  freeStrike:true},
+};
+// Cost is forced to 0 for these regardless of tier -- every other template's cost scales with
+// tier (min(4, tier+1)); these deliberately don't, since "always 0 CP" is the point.
+const ZERO_COST_TEMPLATES = new Set(['quickstrike','quickshot','quickshock','quickbolt']);
+
+// Step 1/2 of the weapon-skill reconfiguration: roll Weapon type -> Quality/Rarity -> Skill(s)
+// from THAT WEAPON'S OWN pool below -- no more shared category filter derived from dmgType/range.
+// Target is 6 skills per type, with overlap between types allowed/expected. Today's pools are
+// seeded with only the 12 pre-existing templates, split along their old melee/ranged +
+// damage-type boundaries -- so several types are still byte-identical to their old category-mates
+// (Spear/Sword/Axe/Hammer; Bow/Dagger; Staff/Totem; Wand/Tome) until more skills are authored
+// per type in a follow-up pass. This is scaffolding, not yet the differentiated 6-each target.
+const WEAPON_SKILL_POOLS = {
+  spear:  ['sweep','rend','riposte','quickstrike'],
+  sword:  ['sweep','rend','riposte','quickstrike'],
+  axe:    ['sweep','rend','riposte','quickstrike'],
+  hammer: ['sweep','rend','riposte','quickstrike'],
+  bow:    ['lunge','aimed','piercing','quickshot'],
+  dagger: ['lunge','aimed','piercing','quickshot'],
+  staff:  ['smolder','brand','heal','quickshock'],
+  totem:  ['smolder','brand','heal','quickshock'],
+  wand:   ['hex','volley','burst','quickbolt'],
+  tome:   ['hex','volley','burst','quickbolt'],
+};
+
+// Merges a weapon's own skill entry (tier, cost, damage, desc, any template-field overrides)
+// with its template's default shape, so the weapon only has to specify what makes it distinct.
+function resolveSkillAction(skillEntry){
+  return {...SKILL_TEMPLATES[skillEntry.template], ...skillEntry, label: skillEntry.label||SKILL_TEMPLATES[skillEntry.template].label};
+}
+
+// Weapon catalog: TYPE (tracks expertise, e.g. 'sword') is separate from the named WEAPON
+// (a specific item, e.g. "Rapier") — each weapon has its own basic-attack numbers and a
+// variable-length list of signature skills, each gated at its OWN expertise tier. A weapon
+// with an empty skills array (the *_basic entries) never grants anything beyond Basic Attack,
+// replacing the old separate "Basic gear" tierCap system entirely — there's no special case
+// anymore, just weapons that happen to define fewer/weaker skills.
+const WEAPON_CATALOG = {
+  // Every named/unique weapon beyond the basic "Worn X" tier was removed here to make room for
+  // the procedural unique-weapon generator (generateWeapon, below STARTER_WEAPON_BY_TYPE) instead
+  // of more hand-authored entries. Each type keeps its one "Worn X" starter (0 skills, matches
+  // what every recruit already begins with); generated weapons register themselves into this
+  // object at runtime under their own gen_* catalogId.
+  spear_basic:  {type:'spear',  name:'Worn Spear',  basicDmgMin:4, basicDmgMax:6, basicRange:0, skills:[]},
+  sword_basic:  {type:'sword',  name:'Worn Sword',  basicDmgMin:4, basicDmgMax:6, basicRange:0, skills:[]},
+  bow_basic:    {type:'bow',    name:'Worn Bow',    basicDmgMin:5, basicDmgMax:7, basicRange:1, skills:[]},
+  wand_basic:   {type:'wand',   name:'Worn Wand',   basicDmgMin:2, basicDmgMax:4, basicRange:2, skills:[]},
+  staff_basic:  {type:'staff',  name:'Worn Staff',  basicDmgMin:3, basicDmgMax:5, basicRange:0, skills:[]},
+  axe_basic:    {type:'axe',    name:'Worn Axe',    basicDmgMin:3, basicDmgMax:8, basicRange:0, skills:[]},
+  hammer_basic: {type:'hammer', name:'Worn Hammer', basicDmgMin:5, basicDmgMax:7, basicRange:0, skills:[]},
+  dagger_basic: {type:'dagger', name:'Worn Dagger', basicDmgMin:4, basicDmgMax:5, basicRange:1, skills:[]},
+  tome_basic:   {type:'tome',   name:'Worn Tome',   basicDmgMin:2, basicDmgMax:4, basicRange:2, skills:[]},
+  // Fourth magic type: range-0 like Staff, distinct from Wand/Tome's range-2 casting style.
+  totem_basic:  {type:'totem',  name:'Worn Totem',  basicDmgMin:3, basicDmgMax:5, basicRange:0, skills:[]},
+};
+
+// One "starter" weapon per type — used for auto-generated starting gear (see
+// confirmRecruitSelection). Deliberately the weakest (0-skill) entry of each type.
+const STARTER_WEAPON_BY_TYPE = {
+  spear:'spear_basic', sword:'sword_basic', bow:'bow_basic', wand:'wand_basic', staff:'staff_basic',
+  axe:'axe_basic', hammer:'hammer_basic', dagger:'dagger_basic', tome:'tome_basic', totem:'totem_basic',
+};
+
+function rollDamage(min,max){
+  return min + Math.floor(Math.random()*(max-min+1));
+}
+
+// Physical/Magic Attack & Defense split, now named Prowess/Arcana (Attack) and Guard/Ward (Defense).
+// Stats run 0-20, with 10 representing an unspecialized/"average" value for that dimension
+// (D&D-style convention). Combined with the ratio-based effectiveness formula, this gives more
+// headroom for small modifiers (traits, level-ups, expertise) to feel gradual rather than swingy.
+// Class design tiers: low=6, medium=10, high=14 (Guardian Guard nudged to 12, Ranger/Arcanist Guard nudged to 8 after two rounds of playtesting).
+// Each trait's numeric effect scales with its "tier" (0 = base, 1 = improved once via level-up, etc).
+// Expanded from 5 to 15 traits (see design-decisions.md Section 7). Sized so a starting company
+// of 8 sees good variety without every recruit rolling a unique trait, and so "gain a new trait"
+// on level-up doesn't dry up immediately for a favored merc within a single run. A veteran merc
+// across a persistent multi-run campaign will still eventually know all 15 — that's expected;
+// "improve tier" remains the endgame path once the pool is exhausted, no per-merc trait cap yet
+// (flagged: a soft cap is the natural follow-up if this pool still feels thin at the table).
+const TRAITS = {
+  stubborn:   {name:'Stubborn',    describe:t=>`+${2+2*t} Guard and Ward below 50% HP`},
+  fleet:      {name:'Fleet',       describe:t=>`First ${1+t} move action(s) each battle cost 0 CP`},
+  precise:    {name:'Precise',     describe:t=>`+${2+2*t} Prowess or Arcana on ranged attacks`},
+  // Nerfed from +3+3t: at tier4 that was +15 HP, nearly doubling effective HTK (4.88->9.75) with
+  // zero conditions attached — the strongest single trait in the pool by a wide margin, unlike
+  // every other stat trait which pays a real conditional cost. +2+t brings its HTK curve
+  // (5.52/6.17/6.82 at tier 0/2/4) in line with Steadfast's comparable always-on curve
+  // (5.20/6.00/7.09) instead of blowing past it.
+  tough:      {name:'Tough',       describe:t=>`+${2+t} maximum HP`},
+  cautious:   {name:'Cautious',    describe:t=>`+${2+2*t} Guard and Ward while in Cover`},
+  // --- New traits (first pass) ---
+  reckless:   {name:'Reckless',    describe:t=>`+${2+2*t} Prowess or Arcana while below 50% HP`},
+  braced:     {name:'Braced',      describe:t=>`+${2+2*t} Guard and Ward against melee attacks`},
+  finisher:   {name:'Finisher',    describe:t=>`+${2+2*t} Prowess or Arcana attacking a target below 50% HP`},
+  vanguard:   {name:'Vanguard',    describe:t=>`+${2+2*t} Prowess or Arcana on your first action of the battle`},
+  relentless: {name:'Relentless',  describe:t=>`First ${1+t} attack(s) each battle cost 1 less CP (minimum 1)`},
+  // Ignores the extra CP cost of difficult terrain (currently only Ruins — flagged: this will
+  // matter a lot more once the planned procedural zone-creation module can tag more zones
+  // 'difficult'; the mechanic is real today but only has one zone to bite on).
+  surefoot:   {name:'Surefoot',    describe:t=>`Ignores extra CP cost from difficult terrain; +${1+t} Guard and Ward while standing in it`},
+  steadfast:  {name:'Steadfast',   describe:t=>`Immune to forced-movement effects; +${1+t} Guard and Ward`},
+  resilient:  {name:'Resilient',   describe:t=>`Guard/Ward-reducing debuffs against you are ${2+2*t} weaker (minimum 0)`},
+  quickstudy: {name:'Quick Study', describe:t=>`+${1+t} bonus weapon expertise progress per won expedition`},
+  keeneye:    {name:'Keen Eye',    describe:t=>`+${1+t} zone(s) of sight range (spots enemies up to ${2+t} zones away)`},
+};
+const TRAIT_KEYS = Object.keys(TRAITS);
+
+// No fixed classes: every recruit rolls individual base stats, and the "class" you see on their
+// card (Guardian/Warden/Ranger/Arcanist) is computed live from their CURRENT stats + equipped
+// weapon (see computeArchetype below) — it can change as they level up or re-equip.
+let MERC_IDS = []; // populated once the player finalizes their 8 recruits; mutated in place elsewhere
+const ACTIVE_CAP = 3;      // max simultaneously deployed
+const MUSTER_CAP = 5;      // max total deployments across one whole battle
+const MAX_CP_PER_ACTIVATION = 3;
+const RECRUIT_POOL_SIZE = 18;
+const RECRUIT_COMPANY_SIZE = 8;
+
+const RECRUIT_NAME_POOL = [
+  'Damon','Marcus','Kleon','Lyra','Thessa','Boros','Nikias','Eleni','Iris','Selene',
+  'Alaric','Brann','Corin','Daphne','Elowen','Fenris','Galla','Hesper','Ionas','Junia',
+  'Kael','Livia','Mira','Nestor','Orin','Petra','Quill','Roswen','Sabine','Torvald',
+];
+
+// Recruits roll 2 of {Prowess, Arcana, Guard, Ward} "high" (12-14) and the other 2 "low" (5-7) —
+// the exact ranges the fixed classes were tuned against, so overall enemy balance stays valid
+// even though individual recruits are no longer clean archetypes.
+function generateRecruitStats(){
+  const keys=['physAtk','magAtk','physDef','magDef'];
+  const shuffled=shuffle(keys);
+  const stats={};
+  shuffled.slice(0,2).forEach(k=>{ stats[k]=12+Math.floor(Math.random()*3); });
+  shuffled.slice(2).forEach(k=>{ stats[k]=5+Math.floor(Math.random()*3); });
+  stats.hp = 12+Math.floor(Math.random()*7); // 12-18
+  stats.spd = 2+Math.floor(Math.random()*3); // 2-4
+  return stats;
+}
+
+// Expertise is biased toward whichever damage type (physical/magic) the recruit's stats favor,
+// so a magically-inclined recruit is likely (not guaranteed) to already know a Wand or Staff,
+// rather than every recruit being a fully independent, potentially incoherent random roll.
+// New recruits start with exactly one star on one weapon type — everything beyond that is
+// earned through use (see EXPERTISE_STAR_THRESHOLDS / resolveBattleEnd). Which weapon they
+// start knowing is still biased toward their stat lean, so it's a coherent starting point
+// rather than a fully independent roll.
+function generateRecruitExpertise(stats){
+  const physicalTypes=['spear','sword','bow','axe','hammer','dagger'], magicTypes=['wand','staff','tome','totem'];
+  const leanPool = stats.magAtk>stats.physAtk ? magicTypes : physicalTypes;
+  const expertise={spear:0,sword:0,bow:0,axe:0,hammer:0,dagger:0,wand:0,staff:0,tome:0,totem:0};
+  const primary = leanPool[Math.floor(Math.random()*leanPool.length)];
+  expertise[primary] = 1;
+  return expertise;
+}
+
+function generateRecruit(usedNames){
+  const stats = generateRecruitStats();
+  const availableNames = RECRUIT_NAME_POOL.filter(n=>!usedNames.has(n));
+  const name = (availableNames.length>0 ? availableNames : RECRUIT_NAME_POOL)[Math.floor(Math.random()*(availableNames.length>0?availableNames.length:RECRUIT_NAME_POOL.length))];
+  usedNames.add(name);
+  const traitKey = TRAIT_KEYS[Math.floor(Math.random()*TRAIT_KEYS.length)];
+  return {
+    id:`rec_${name.toLowerCase()}_${Math.floor(Math.random()*100000)}`,
+    name, baseStats:stats, trait:traitKey, expertise:generateRecruitExpertise(stats),
+  };
+}
+
+function generateRecruitPool(count){
+  const usedNames=new Set();
+  const pool=[];
+  for(let i=0;i<count;i++){ pool.push(generateRecruit(usedNames)); }
+  return pool;
+}
+
+// Emergent "class" label — never stored, always computed from current stats + equipped weapon,
+// so it reflects who the mercenary IS right now, not what they were assigned at creation.
+function computeArchetype(stats, equippedItem){
+  const weaponType = equippedItem ? equippedItem.type : null;
+  const isMagicWeapon = weaponType==='wand' || weaponType==='staff' || weaponType==='tome' || weaponType==='totem';
+  const isPhysicalWeapon = weaponType && !isMagicWeapon;
+  let leansMagic;
+  if(isMagicWeapon) leansMagic=true;
+  else if(isPhysicalWeapon) leansMagic=false;
+  else leansMagic = stats.magAtk > stats.physAtk;
+
+  // Magic archetypes mirror the physical split exactly (same >=/<=-6/else thresholds, just on
+  // magDef/magAtk instead of physDef/physAtk) — Option A: structural parity, not new mechanics.
+  // 'Arcanist' keeps its name as the balanced middle bucket rather than disappearing; Enchanter
+  // (Ward-leaning) and Battlemage (Arcana-leaning) are the two new names filling out the trio.
+  if(leansMagic){
+    if(stats.magDef >= stats.magAtk) return 'Enchanter';
+    if(stats.magDef <= stats.magAtk-6) return 'Battlemage';
+    return 'Arcanist';
+  }
+  if(stats.physDef >= stats.physAtk) return 'Guardian';
+  if(stats.physDef <= stats.physAtk-6) return 'Ranger';
+  return 'Warden';
+}
+
+// Leveling counts expeditions (battles won and survived), not abstract XP points. Recruits start
+// at Level 0 (no choices made yet). No level cap: reaching Level N always costs N MORE expeditions
+// than reaching Level N-1 (1, then 2 more, then 3 more, ...), so the cumulative expeditions needed
+// for Level N is the triangular number N*(N+1)/2 — the same escalating shape used for weapon
+// expertise (EXPERTISE_STAR_THRESHOLDS), just unbounded instead of capped at 5.
+const XP_PER_BATTLE = 1;
+function xpNeededForLevel(level){ return level*(level+1)/2; }
+
+// A mercenary downed in battle rolls one of four equally-likely outcomes (25% each):
+// miss 1 / 2 / 3 expeditions, or death (permanently lost; their equipped item returns to inventory).
+// Thematic terms for each downed-outcome tier, keyed by severity (1-3 = injured tiers, 'dead' = death).
+const INJURY_TERMS = { 1:'Shaken', 2:'Wounded', 3:'Broken', dead:'Slain' };
+
+function rollDownedOutcome(){
+  const r = Math.random();
+  if(r < 0.25) return {status:'injured', battlesRemaining:1, severity:1};
+  if(r < 0.50) return {status:'injured', battlesRemaining:2, severity:2};
+  if(r < 0.75) return {status:'injured', battlesRemaining:3, severity:3};
+  return {status:'dead', battlesRemaining:0, severity:'dead'};
+}
+
+// Human-readable label for a merc's current injury state, using the fixed severity term
+// (not the ticking-down battlesRemaining), so the label doesn't change as they recover.
+function injuryLabel(merc){
+  if(merc.injury.status==='dead') return INJURY_TERMS.dead;
+  if(merc.injury.status==='injured') return INJURY_TERMS[merc.injury.severity] || 'Injured';
+  return null;
+}
+
+/* ============================== CAMPAIGN (persistent, across battles) ============================== */
+
+let CAMPAIGN = null;
+
+function bestExpertiseWeaponType(merc){
+  let best=WEAPON_ORDER[0], bestVal=-1;
+  WEAPON_ORDER.forEach(wt=>{
+    const v = merc.expertise[wt]||0;
+    if(v>bestVal){ bestVal=v; best=wt; }
+  });
+  return best;
+}
+
+/* ============================== PROTOTYPE D: RUN / MAP / ECONOMY ============================== */
+
+const STARTING_GOLD = 100;
+
+// --- Procedural unique weapon engine ---
+// Generates a full WEAPON_CATALOG entry on demand and registers it, rather than picking from a
+// hand-authored list. Agnostic to how many skill templates exist — always derives its eligible
+// pool fresh from SKILL_TEMPLATES at generation time, so expanding that pool later needs zero
+// changes here. Rarity controls skill count, the skill's tier requirement, and damage bonus,
+// directly extending the "Bone Axe (tier 1, cruder) vs Steel Longsword (tier 2, better)" idea:
+// higher rarity = harder to unlock, but stronger once you do.
+const RARITY_TIERS = {
+  common:   {label:'Sturdy',     dmgBonus:1, skillTier:1, twoSkillChance:0,    priceMultiplier:1},
+  uncommon: {label:'Fine',       dmgBonus:3, skillTier:2, twoSkillChance:0.3,  priceMultiplier:1.6},
+  // Masterwork moved from expertise tier 3 -> 4 (pushes rare-skill access back from a 6-win
+  // baseline threshold to a 10-win one — see EXPERTISE_STAR_THRESHOLDS). Leaves tier 3 (and 5)
+  // as plateaus with no new skill unlock, since only 3 rarities exist for 5 expertise tiers.
+  rare:     {label:'Masterwork', dmgBonus:6, skillTier:4, twoSkillChance:0.7,  priceMultiplier:2.4},
+};
+// Per-template tier overrides -- currently empty. Heal and Brand were briefly fixed to tier
+// 2/3 regardless of rarity; reverted so both follow the same rarity-driven tier as every other
+// skill (see TEMPLATE_TIER_OVERRIDE usage below). Left in place as a mechanism in case a future
+// template genuinely needs a fixed tier independent of rarity.
+const TEMPLATE_TIER_OVERRIDE = {};
+const RARITY_KEYS = Object.keys(RARITY_TIERS);
+const RARITY_BASE_PRICE = 35;
+const TYPE_DISPLAY_NAME = {spear:'Spear',sword:'Sword',bow:'Bow',axe:'Axe',hammer:'Hammer',dagger:'Dagger',wand:'Wand',staff:'Staff',tome:'Tome',totem:'Totem'};
+
+function buildSkillDesc(action){
+  const rangeText = action.range===0 ? 'Same zone.' : action.range===1 ? 'Adjacent zone.' : `Up to ${action.range} zones away.`;
+  if(action.heal){
+    return `${rangeText} Heals an ally for ${action.healMin}-${action.healMax} HP.`;
+  }
+  const aoeText = action.aoe ? (action.maxTargets ? ` Hits up to ${action.maxTargets} enemies in the target zone.` : ' Hits everyone in the target zone.') : '';
+  const rollText = ` Rolls ${action.dmgMin}-${action.dmgMax}${action.aoe?' each':''}.`;
+  let extraText = '';
+  if(action.ignoreDef) extraText = ` Target Guard −${action.ignoreDef} before effectiveness.`;
+  if(action.selfDef) extraText = ` +${action.selfDef} Guard to self until your next activation.`;
+  if(action.debuff) extraText = ` Target Guard and Ward −${action.debuff} until it next acts.`;
+  if(action.freeStrike) extraText += ' Once per activation.';
+  return `${rangeText}${rollText}${aoeText}${extraText}`;
+}
+
+// buildFreeStrikeAction removed -- Quick Strike/Shot/Shock/Bolt are now normal
+// WEAPON_SKILL_POOLS entries (see SKILL_TEMPLATES quickstrike/quickshot/quickshock/quickbolt),
+// tier-gated and damage-scaled like everything else, no longer guaranteed on every weapon.
+
+// Generates one weapon of the given type/rarity, registers it into WEAPON_CATALOG, and returns
+// its new catalogId. type is required; rarity defaults to a roll if omitted.
+function generateWeapon(type, rarity){
+  rarity = rarity || RARITY_KEYS[Math.floor(Math.random()*RARITY_KEYS.length)];
+  const tierConfig = RARITY_TIERS[rarity];
+  const dmgType = WEAPON_TYPE_DMGTYPE[type];
+  const wornEntry = WEAPON_CATALOG[STARTER_WEAPON_BY_TYPE[type]];
+  const basicDmgMin = wornEntry.basicDmgMin + tierConfig.dmgBonus;
+  const basicDmgMax = wornEntry.basicDmgMax + tierConfig.dmgBonus;
+
+  // Eligible templates: this weapon type's own pool (WEAPON_SKILL_POOLS), not a filter derived
+  // from dmgType/range. Weapon -> Quality -> Skill(s) roll order.
+  const eligibleTemplateKeys = WEAPON_SKILL_POOLS[type];
+  const skillCount = Math.min(eligibleTemplateKeys.length, (Math.random()<tierConfig.twoSkillChance) ? 2 : 1);
+  const chosenTemplates = shuffle(eligibleTemplateKeys.slice()).slice(0, skillCount);
+
+  const skills = chosenTemplates.map(templateKey=>{
+    // Most templates (now including Heal and Brand) inherit their required expertise tier from
+    // the weapon's rarity, same as damage/cost scaling. TEMPLATE_TIER_OVERRIDE is checked first
+    // in case it's ever needed again, but is currently empty.
+    const tier = TEMPLATE_TIER_OVERRIDE[templateKey] !== undefined ? TEMPLATE_TIER_OVERRIDE[templateKey] : tierConfig.skillTier;
+    const cost = ZERO_COST_TEMPLATES.has(templateKey) ? 0 : Math.min(4, tier+1);
+    const skillEntry = {template:templateKey, tier, cost};
+    if(templateKey==='heal'){
+      // Half of this weapon's own Basic Attack damage (same halving rule as the 0-CP
+      // quick-strike skills), replacing the previous tier-additive "tier to tier+2" formula.
+      // Still varies by rarity since basicDmgMin/Max already incorporate dmgBonus.
+      skillEntry.healMin = Math.max(1, Math.round(basicDmgMin/2));
+      skillEntry.healMax = Math.max(skillEntry.healMin, Math.round(basicDmgMax/2));
+    } else if(ZERO_COST_TEMPLATES.has(templateKey)){
+      // Halved from this weapon's own Basic Attack damage (basicDmgMin/Max, already computed
+      // above), not tier-scaled like other skills -- replaces the previous tier-additive formula.
+      // Still grows with rarity (since Basic Attack itself does via dmgBonus), just always at
+      // half the value, and floored at 1 so it's never zero on the lowest-damage weapons.
+      skillEntry.dmgMin = Math.max(1, Math.round(basicDmgMin/2));
+      skillEntry.dmgMax = Math.max(skillEntry.dmgMin, Math.round(basicDmgMax/2));
+    } else {
+      skillEntry.dmgMin = basicDmgMin + tier;
+      skillEntry.dmgMax = basicDmgMax + tier + 1;
+    }
+    if(templateKey==='rend') skillEntry.ignoreDef = 2 + tierConfig.dmgBonus;
+    if(templateKey==='riposte') skillEntry.selfDef = 1 + Math.ceil(tierConfig.dmgBonus/2);
+    if(templateKey==='hex') skillEntry.debuff = 1 + Math.ceil(tierConfig.dmgBonus/2);
+    if(templateKey==='brand') skillEntry.debuff = 1 + Math.ceil(tierConfig.dmgBonus/2); // was missing entirely -- fixed alongside this edit
+    skillEntry.desc = buildSkillDesc(resolveSkillAction(skillEntry));
+    return skillEntry;
+  });
+
+  const name = `${tierConfig.label} ${TYPE_DISPLAY_NAME[type]}`;
+  const catalogId = `gen_${type}_${rarity}_${Date.now()}_${Math.floor(Math.random()*100000)}`;
+  WEAPON_CATALOG[catalogId] = {type, name, basicDmgMin, basicDmgMax, basicRange:wornEntry.basicRange, skills, rarity};
+  return catalogId;
+}
+
+function weaponPrice(catalogId){
+  const entry = WEAPON_CATALOG[catalogId];
+  const rarityMult = entry.rarity ? RARITY_TIERS[entry.rarity].priceMultiplier : 1;
+  return Math.round(RARITY_BASE_PRICE * rarityMult);
+}
+
+// Rarity odds vary by context — a combat win skews common, an Elite or the Merchant skews toward
+// better gear.
+function rollRarity(oddsProfile){
+  const r = Math.random();
+  if(oddsProfile==='elite'){ return r<0.2?'common':r<0.7?'uncommon':'rare'; }
+  if(oddsProfile==='merchant'){ return r<0.3?'common':r<0.75?'uncommon':'rare'; }
+  return r<0.6?'common':r<0.95?'uncommon':'rare'; // 'combat' / default
+}
+
+const MERCHANT_SELL_RATIO = 0.4; // selling an owned item back nets 40% of its (rarity-scaled) price
+const MERCHANT_STOCK_SIZE = 3;
+
+const REWARD_GOLD = {combat:[30,50], elite:[60,100]};
+
+// A handful of deterministic Event nodes — each a short scenario with 2-3 choices and a defined
+// outcome. Effects: {gold:n}, {injureRandom:true} (a random available merc gets Shaken),
+// {healRandom:true} (reduces one injured merc's countdown by 1), {item:true} (adds a random
+// reward-pool weapon to the inventory, unequipped).
+const EVENTS = [
+  {
+    id:'wounded_traveler', title:'Wounded Traveler',
+    text:'A wounded traveler by the roadside begs for supplies. Helping costs time your company can\u2019t easily spare.',
+    choices:[
+      {label:'Give supplies (-20 Gold, heal a wounded mercenary)', effect:{gold:-20, healRandom:true}},
+      {label:'Leave them', effect:{}},
+    ],
+  },
+  {
+    id:'old_battlefield', title:'Old Battlefield',
+    text:'A scavenged battlefield holds a discarded weapon, but picking through the wreckage risks disturbing something dangerous.',
+    choices:[
+      {label:'Search carefully (gain a weapon, risk injury)', effect:{item:true, injureChance:0.35}},
+      {label:'Move on', effect:{}},
+    ],
+  },
+  {
+    id:'bandit_toll', title:'Bandit Toll',
+    text:'A local gang demands payment to let your company pass unmolested.',
+    choices:[
+      {label:'Pay the toll (-30 Gold)', effect:{gold:-30}},
+      {label:'Force your way through (risk injury, keep your gold)', effect:{injureChance:0.5}},
+    ],
+  },
+  {
+    id:'hidden_cache', title:'Hidden Cache',
+    text:'Your scouts find a small cache hidden beneath a collapsed wall.',
+    choices:[
+      {label:'Take the gold (+40 Gold)', effect:{gold:40}},
+      {label:'Take the supplies (heal a wounded mercenary)', effect:{healRandom:true}},
+    ],
+  },
+  {
+    id:'grim_omen', title:'Grim Omen',
+    text:'The company passes a sight that unsettles even hardened mercenaries. Morale wavers.',
+    choices:[
+      {label:'Press on regardless', effect:{}},
+      {label:'Make camp early to steady nerves (-15 Gold, heal a wounded mercenary)', effect:{gold:-15, healRandom:true}},
+    ],
+  },
+  {
+    id:'friendly_smith', title:'Friendly Smith',
+    text:'A traveling smith offers to sharpen your gear for a modest fee.',
+    choices:[
+      {label:'Pay for the work (-25 Gold, gain a weapon)', effect:{gold:-25, item:true}},
+      {label:'Decline', effect:{}},
+    ],
+  },
+];
+
+// Three layers of node choices between Start and Boss (matches the GDD's example shape).
+const RUN_LAYER_TEMPLATES = [
+  ['combat','event','combat'],
+  ['merchant','rest','combat'],
+  ['elite','combat','event'],
+];
+
+function generateRunMap(){
+  const layers = RUN_LAYER_TEMPLATES.map((types,li)=>types.map((type,ni)=>({
+    id:`n${li}_${ni}`, type, layer:li,
+  })));
+  return {
+    layers,
+    bossNode:{id:'boss', type:'boss', layer:layers.length},
+    currentLayer:-1, currentNodeId:null, completedNodeIds:[],
+  };
+}
+
+function getCurrentRunNode(){
+  const run=CAMPAIGN.run;
+  if(!run || !run.currentNodeId) return null;
+  if(run.currentNodeId==='boss') return run.bossNode;
+  for(const layer of run.layers){
+    const n=layer.find(n=>n.id===run.currentNodeId);
+    if(n) return n;
+  }
+  return null;
+}
+
+function getNodesForSelection(){
+  const run=CAMPAIGN.run;
+  const nextLayerIndex = run.currentLayer+1;
+  if(nextLayerIndex < run.layers.length) return run.layers[nextLayerIndex];
+  return [run.bossNode];
+}
+
+function generateRewardChoices(nodeType){
+  const goldRange = nodeType==='elite' ? REWARD_GOLD.elite : REWARD_GOLD.combat;
+  const gold = goldRange[0] + Math.floor(Math.random()*(goldRange[1]-goldRange[0]+1));
+  const randomType = WEAPON_ORDER[Math.floor(Math.random()*WEAPON_ORDER.length)];
+  const catalogId = generateWeapon(randomType, rollRarity(nodeType==='elite'?'elite':'combat'));
+  const weaponTemplate = WEAPON_CATALOG[catalogId];
+  const choices = [
+    {kind:'gold', label:`${gold} Gold`, amount:gold},
+    {kind:'weapon', label:`${weaponTemplate.name} (${WEAPON_CATALOG[catalogId].rarity})`, weaponType:weaponTemplate.type, weaponName:weaponTemplate.name, weaponCatalogId:catalogId},
+    {kind:'supply', label:'Minor Healing Supply', desc:'Reduces one injured mercenary\u2019s recovery time by 1 expedition (or +20 Gold if nobody is injured).'},
+  ];
+  return choices;
+}
+
+function bareCampaignShell(){
+  return {
+    screen:'recruitSelect',
+    recruitPool: generateRecruitPool(RECRUIT_POOL_SIZE),
+    recruitSelected: [],
+    roster:{}, inventory:[], lastBattleResult:null,
+    gold: STARTING_GOLD, run:null, runNumber:0, battleNumber:1,
+    pendingReward:null, lastRunResult:null, returnScreen:null,
+  };
+}
+
+function toggleRecruitSelection(recruitId){
+  const idx = CAMPAIGN.recruitSelected.indexOf(recruitId);
+  if(idx>=0){ CAMPAIGN.recruitSelected.splice(idx,1); }
+  else if(CAMPAIGN.recruitSelected.length < RECRUIT_COMPANY_SIZE){ CAMPAIGN.recruitSelected.push(recruitId); }
+  renderScreen();
+}
+
+function confirmRecruitSelection(){
+  if(CAMPAIGN.recruitSelected.length !== RECRUIT_COMPANY_SIZE) return;
+  const roster={};
+  CAMPAIGN.recruitSelected.forEach(id=>{
+    const r = CAMPAIGN.recruitPool.find(rec=>rec.id===id);
+    roster[id] = {
+      id:r.id, name:r.name, level:0, xp:0,
+      traits:[{key:r.trait, tier:0}],
+      expertise:{...r.expertise},
+      expertiseProgress:{spear:0,sword:0,bow:0,axe:0,hammer:0,dagger:0,wand:0,staff:0,tome:0,totem:0},
+      baseStats:{...r.baseStats},
+      statBonus:{hp:0,physAtk:0,magAtk:0,physDef:0,magDef:0,spd:0},
+      injury:{status:'available', battlesRemaining:0},
+    };
+  });
+  MERC_IDS = Object.keys(roster);
+  CAMPAIGN.roster = roster;
+
+  // Clean start: no "real" named weapons at campaign creation — every recruit begins with the
+  // starter (0-skill) catalog entry for their own best expertise type. Real gear is something
+  // the run provides — Merchant purchases, combat rewards, events — not a head start.
+  CAMPAIGN.inventory = [];
+  MERC_IDS.forEach(id=>{
+    const bestType = bestExpertiseWeaponType(roster[id]);
+    const catalogId = STARTER_WEAPON_BY_TYPE[bestType];
+    const w = WEAPON_CATALOG[catalogId];
+    CAMPAIGN.inventory.push({ id:`basic_${id}`, type:bestType, name:w.name, catalogId, equippedBy:id });
+  });
+
+  CAMPAIGN.recruitPool = null;
+  CAMPAIGN.recruitSelected = null;
+  CAMPAIGN.screen = 'company';
+  renderScreen();
+}
+
+function equippedItemFor(mercId){
+  return CAMPAIGN.inventory.find(i=>i.equippedBy===mercId) || null;
+}
+
+function currentStats(merc){
+  const base=merc.baseStats;
+  const toughBonus = merc.traits.reduce((sum,tr)=> tr.key==='tough' ? sum + (2+tr.tier) : sum, 0);
+  return {
+    hp: base.hp + (merc.statBonus.hp||0) + toughBonus,
+    physAtk: base.physAtk + (merc.statBonus.physAtk||0),
+    magAtk: base.magAtk + (merc.statBonus.magAtk||0),
+    physDef: base.physDef + (merc.statBonus.physDef||0),
+    magDef: base.magDef + (merc.statBonus.magDef||0),
+    spd: base.spd + (merc.statBonus.spd||0),
+  };
+}
+
+/* ============================== STATE (one battle) ============================== */
+
+let S = null;
+
+/* ---- undo history: JSON snapshots taken right before any committed action ---- */
+let HISTORY = [];
+const HISTORY_CAP = 20;
+
+function snapshot(){
+  HISTORY.push(JSON.stringify(S));
+  if(HISTORY.length>HISTORY_CAP) HISTORY.shift();
+}
+
+function undo(){
+  if(HISTORY.length===0) return;
+  const prev = HISTORY.pop();
+  S = JSON.parse(prev);
+  log('↶ Reverted to the previous action.','deploy');
+  render();
+}
+
+function shuffle(arr){
+  const a=arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+
+// defBonusBoth/defBonusPhys/defBonusMag: temporary Defense boosts (Defend action = Both; a weapon's
+// own self-buff, e.g. Sword's Guard Strike, only boosts the matching damage type).
+// debuffBoth: temporary Defense reduction from being Weakened (both types, until this unit's next activation).
+function makeEnemyUnit(id,name,cls,physAtk,magAtk,physDef,magDef,hp,spd,zone,range,hidden,dmgMin,dmgMax,dmgType,role){
+  return {id,side:'enemy',name,cls,role:role||cls,hp,maxHp:hp,physAtk,magAtk,physDef,magDef,spd,zone,range,
+    attackDmgMin:dmgMin, attackDmgMax:dmgMax, attackDmgType:dmgType||'physical',
+    alive:true,defBonusBoth:0,defBonusPhys:0,defBonusMag:0,debuffBoth:0,initiative:0,deployedRound:-1,hidden:!!hidden};
+}
+
+function expertiseTier(merc, weaponType){
+  return (merc.expertise[weaponType])||0;
+}
+
+function makeMercUnit(mercId, roundDeployed){
+  const merc = CAMPAIGN.roster[mercId];
+  const stats = currentStats(merc);
+  const item = equippedItemFor(mercId);
+  const tier = item? expertiseTier(merc,item.type) : 0;
+  return {
+    id:merc.id, side:'merc', name:merc.name, cls:computeArchetype(stats,item),
+    weaponType: item? item.type : null,
+    weaponName: item? item.name : null,
+    weaponCatalogId: item? item.catalogId : null,
+    expertiseTier: tier,
+    rawExpertiseTier: tier, // kept as a separate field for masteryMultiplier's sake, but no longer capped differently — the weapon's own skill tier requirements are the only gate now
+    hp:stats.hp, maxHp:stats.hp,
+    physAtk:stats.physAtk, magAtk:stats.magAtk, physDef:stats.physDef, magDef:stats.magDef, spd:stats.spd,
+    traits: merc.traits,
+    freeMovesUsed: 0,
+    freeAttackDiscountUsed: 0,
+    freeStrikeUsedThisTurn: false,
+    hasActed: false, // flips true at end of this unit's first activation each battle (Vanguard)
+    zone:entryZoneId(), alive:true, defBonusBoth:0, defBonusPhys:0, defBonusMag:0, debuffBoth:0, initiative:0, deployedRound:roundDeployed,
+  };
+}
+
+function availableMercIds(){
+  return MERC_IDS.filter(id=>CAMPAIGN.roster[id].injury.status==='available');
+}
+
+function buildBattleDeck(){
+  const deck = shuffle(availableMercIds());
+  const hand = deck.splice(0,3);
+  return {deck,hand};
+}
+
+// Base enemy templates, cycled round-robin to fill out a mission's enemy count.
+// Bodies: the actual creatures — stats and damage type only, no behavior baked in. Any body can
+// be assigned any role below (see buildEnemyUnits), so "Brute" can appear as a Seeker, a Guard,
+// a Blocker, an Ambusher, etc. — same stats, different AI, chosen independently per mission.
+const ENEMY_BODIES = [
+  {body:'Brute',   hp:14, physAtk:11, magAtk:0,  physDef:10, magDef:5, spd:2, range:undefined, dmgMin:6, dmgMax:8, dmgType:'physical'},
+  {body:'Archer',  hp:12, physAtk:13, magAtk:0,  physDef:11, magDef:8, spd:4, range:3,          dmgMin:5, dmgMax:7, dmgType:'physical'},
+  // Ranged single-target caster — same AI shape as the Archer body (kite, target lowest-HP,
+  // prefer Cover) but attacks with Arcana instead of Prowess, testing the party's Ward.
+  {body:'Cultist', hp:12, physAtk:0,  magAtk:12, physDef:11, magDef:8, spd:3, range:3,          dmgMin:5, dmgMax:7, dmgType:'magical'},
+  // Glass cannon — highest Prowess and fastest SPD of the roster, paired with the lowest HP and
+  // both defenses. Lands at the low end of the 3-6 band on both sides: dies fast, kills fast.
+  {body:'Hound',   hp:13, physAtk:15, magAtk:0,  physDef:6,  magDef:5, spd:6, range:undefined, dmgMin:7, dmgMax:9, dmgType:'physical'},
+  // Tank — highest HP and defenses of the roster, slowest SPD. Still deals real damage (lands
+  // right at the top of the band on offense) so it stays a genuine threat, not just a wall.
+  // First AoE-capable body (aoe:true) — a concrete "high tier" demonstration per the plan to
+  // gate AoE to mid/high tier troops once real difficulty tiering exists; which OTHER bodies
+  // get aoe:true is deferred to that future work, not decided here.
+  {body:'Tank',    hp:16, physAtk:11, magAtk:0,  physDef:11, magDef:8, spd:1, range:undefined, dmgMin:5, dmgMax:7, dmgType:'physical', aoe:true},
+  // Zealot — the missing coverage gap: magical melee. Must close to the same zone like a Brute,
+  // but hits with Arcana and tests Ward instead of Guard — can't be avoided by kiting the way
+  // Cultist can.
+  {body:'Zealot',  hp:13, physAtk:0,  magAtk:10, physDef:9,  magDef:8, spd:3, range:undefined, dmgMin:6, dmgMax:8, dmgType:'magical'},
+  // Hexer — Controller (debuff specialist). On every successful hit, ALSO reduces the target's
+  // Guard and Ward until their next activation (see debuffOnHit, applied in resolveAttackFree) —
+  // the enemy-side mirror of the Wand's Weaken/Arcane Bolt. Lower raw damage; the debuff is
+  // where its power budget actually goes.
+  {body:'Hexer',   hp:12, physAtk:0,  magAtk:9,  physDef:8,  magDef:9, spd:3, range:2, dmgMin:3, dmgMax:5, dmgType:'magical', debuffOnHit:2},
+  // Displacer — Controller (battlefield manipulator). On every successful hit, ALSO force-moves
+  // the target to a random adjacent zone (see forcedMoveOnHit) — including through Blocker/
+  // Ambusher zone-entry triggers, since it's a real, if involuntary, move.
+  {body:'Displacer', hp:11, physAtk:13, magAtk:0, physDef:7, magDef:6, spd:4, range:undefined, dmgMin:4, dmgMax:6, dmgType:'physical', forcedMoveOnHit:true},
+];
+
+// Roles: pure behavior/AI, no stats of their own — the "Core Enemy Roles." Every role's brain
+// reads the body's own range stat (0 = melee, >0 = ranged) so it works correctly regardless of
+// which body it's assigned to, the same way brainGuard/brainPatrol were already built.
+//   Seeker: chases down enemies (melee closes distance; ranged repositions toward/kites)
+//   Guard: holds its zone, never chases — going around it is always an option
+//   Blocker: same static defense as Guard, plus a free strike on anyone who moves INTO its zone
+//   Patrol: cycles a short 2-zone route when nothing's in range instead of waiting or chasing
+//   Ambusher: starts hidden, reveals + free strike the instant a merc enters its zone
+//   Reserve: starts hidden, arrives automatically at a scheduled round regardless of position
+//   ObjectiveGuard: same AI as Guard — "protects the objective" needs a real objectives system
+//     that doesn't exist yet, so this is flagged as a placeholder, not a distinct behavior.
+const ENEMY_ROLES = ['Seeker','Guard','Blocker','Patrol','Ambusher','Reserve','ObjectiveGuard'];
+
+// All non-Camp zones for normal (visible) enemies. A visible enemy is fine to place in Watchtower —
+// unlike a hidden one, the player can see it's occupied and choose to fight for the position.
+const ENEMY_SPAWN_ZONES = null; // v1.0: generated dynamically by hostileSpawnZoneIds()
+// Hidden enemies (Ambusher) exclude Watchtower too — its 1-occupant cap would silently block that
+// zone from ever being entered, with no way for the player to know why.
+const AMBUSH_SPAWN_ZONES = null; // v1.0: generated dynamically by ambushSpawnZoneIds()
+
+const MISSION_ENEMY_COUNT = { easy: ACTIVE_CAP, normal: Math.round((ACTIVE_CAP+MUSTER_CAP)/2), hard: MUSTER_CAP };
+const MISSION_KEYS = ['easy','normal','hard'];
+
+function resolveMissionDifficulty(key){
+  if(key==='random') return MISSION_KEYS[Math.floor(Math.random()*MISSION_KEYS.length)];
+  return key;
+}
+
+function buildEnemyUnits(difficultyKey){
+  const count = MISSION_ENEMY_COUNT[difficultyKey];
+  const units = {};
+  // Every body x role pairing is a valid, distinct unit (Brute-as-Guard, Cultist-as-Patrol, etc.) —
+  // sample without replacement across all combinations so a mission never repeats the exact same
+  // pairing twice, while the same role shows up on different bodies across missions over time.
+  const allCombos = [];
+  ENEMY_BODIES.forEach(body=>{
+    ENEMY_ROLES.forEach(role=>{ allCombos.push({body,role}); });
+  });
+  const chosen = shuffle(allCombos.slice()).slice(0,count);
+
+  chosen.forEach(({body,role},i)=>{
+    const isHiddenRole = role==='Ambusher' || role==='Reserve';
+    const id = `${body.body.toLowerCase()}_${role.toLowerCase()}_${i}`;
+    const displayName = `${body.body} (${role})`;
+    const zonePool = isHiddenRole ? ambushSpawnZoneIds() : hostileSpawnZoneIds();
+    const zone = zonePool[Math.floor(Math.random()*zonePool.length)];
+    const unit = makeEnemyUnit(id, displayName, body.body, body.physAtk, body.magAtk, body.physDef, body.magDef, body.hp, body.spd, zone, body.range, isHiddenRole, body.dmgMin, body.dmgMax, body.dmgType, role);
+    if(body.debuffOnHit) unit.debuffOnHit = body.debuffOnHit;
+    if(body.forcedMoveOnHit) unit.forcedMoveOnHit = body.forcedMoveOnHit;
+    if(body.aoe) unit.aoe = body.aoe;
+    if(role==='Patrol'){
+      const adj = ZONES[zone].adj.filter(z=>z!==entryZoneId());
+      const routeTo = adj.length>0 ? adj[Math.floor(Math.random()*adj.length)] : zone;
+      unit.patrolRoute = [zone, routeTo];
+      unit.patrolIndex = 0;
+    }
+    if(role==='Reserve'){
+      unit.reserveRound = 2; // arrives at the start of Round 2, regardless of merc movement
+    }
+    units[id] = unit;
+  });
+  return units;
+}
+
+function freshBattleState(difficultyKey, bossMode){
+  const {deck,hand} = buildBattleDeck();
+  const resolvedDifficulty = bossMode ? 'boss' : resolveMissionDifficulty(difficultyKey);
+  const units = bossMode ? buildBossUnits() : buildEnemyUnits(resolvedDifficulty);
+  return {
+    round:1, cp:5, cpMax:5, spentThisTurn:0,
+    stage:'deploy', // 'deploy' | 'combat' | 'over'
+    order:[], ptr:0,
+    mode:'idle', pendingAction:null, selectedActor:null,
+    deck, hand, defeated:[], everDeployed:[], totalDeployed:0,
+    difficulty:resolvedDifficulty,
+    units,
+  };
+}
+
+// Split-focus boss: two linked components in different zones. Both start with a shared Defense
+// bonus (LINKED_BOSS_DEFENSE_BONUS) that vanishes for whichever one is left alive once its
+// partner dies — rewarding either splitting damage evenly or committing hard to one target.
+function buildBossUnits(){
+  const zones=bossSpawnZoneIds();
+  const anchorZone=zones[0] || hostileSpawnZoneIds()[0];
+  const conduitZone=zones[1] || zones[0] || hostileSpawnZoneIds()[0];
+  const anchor = makeEnemyUnit('anchor','The Anchor','Anchor',13,0,11,6,22,2,anchorZone,undefined,false,7,9,'physical');
+  const conduit = makeEnemyUnit('conduit','The Conduit','Conduit',0,13,7,11,16,3,conduitZone,3,false,6,8,'magical');
+  anchor.linkedPartnerId='conduit';
+  conduit.linkedPartnerId='anchor';
+  return {anchor, conduit};
+}
+
+/* ============================== HELPERS ============================== */
+
+function livingUnits(side){
+  return Object.values(S.units).filter(u=>u.alive && (side?u.side===side:true));
+}
+function aliveMercs(){return livingUnits('merc');}
+function aliveEnemies(){return livingUnits('enemy');}
+
+// Fog of war: a zone is "spotted" by a side if at least one living, non-hidden unit of that side
+// is IN that zone or in a zone directly connected to it. Recomputed fresh every call — dynamic,
+// not a permanent reveal, so units can slip out of sight again as positions change. Shared team
+// vision: it only takes ONE spotter on a side for that whole side to see/target the zone.
+function isZoneSpottedBy(zone, spottingSide){
+  return Object.values(S.units).some(u=>{
+    if(u.side!==spottingSide || !u.alive || u.hidden) return false;
+    let radius = 1;
+    if(u.side==='merc'){
+      const keenTier = traitTier(u,'keeneye');
+      if(keenTier!==null) radius = 2+keenTier; // Keen Eye: base sight 1 -> 2, +1 more per tier
+    }
+    return bfsDistance(u.zone, zone) <= radius;
+  });
+}
+
+// For anything the PLAYER should be able to see or target — excludes a still-hidden Ambusher/
+// Reserve, AND anything fogged out (no merc currently adjacent to or sharing its zone).
+// Victory/defeat checks intentionally use aliveEnemies() instead, since a hidden or fogged enemy
+// is still a real threat that must be dealt with.
+function visibleAliveEnemies(){return aliveEnemies().filter(e=>!e.hidden && isZoneSpottedBy(e.zone,'merc'));}
+
+// Symmetric fog for enemy AI target SELECTION only — movement/repositioning when nothing's in
+// attack range still uses full positional knowledge (aliveMercs()) rather than fogged info, since
+// building genuine "last known position" tracking for wandering AI is a much larger feature than
+// this pass covers; that's a deliberate simplification, not an oversight.
+function spottedAliveMercs(){return aliveMercs().filter(m=>isZoneSpottedBy(m.zone,'enemy'));}
+
+function bfsDistance(from,to){
+  if(from===to) return 0;
+  let seen=new Set([from]), q=[[from,0]];
+  while(q.length){
+    const [z,d]=q.shift();
+    for(const n of ZONES[z].adj){
+      if(n===to) return d+1;
+      if(!seen.has(n)){seen.add(n);q.push([n,d+1]);}
+    }
+  }
+  return Infinity;
+}
+
+function traitTier(unit, key){
+  if(!unit.traits) return null;
+  const t=unit.traits.find(tr=>tr.key===key);
+  return t? t.tier : null;
+}
+
+// Effective Defense of `u` for a given damage type ('physical' or 'magical'), factoring in
+// stance/positioning/trait bonuses live. NOT floored at 0 — the spec explicitly allows negative
+// Defense (from debuffs/ignoreDef) to push effectiveness above 100%.
+const LINKED_BOSS_DEFENSE_BONUS = 4;
+
+function getEffectiveDefense(u, dmgType, isRanged, attackerZone){
+  let d = dmgType==='magical' ? u.magDef : u.physDef;
+  d += (u.defBonusBoth||0);
+  d += dmgType==='magical' ? (u.defBonusMag||0) : (u.defBonusPhys||0);
+  d -= (u.debuffBoth||0);
+  if(zoneHasFeature(u.zone,'RALLY') || zoneHasEffect(u.zone,'rally')) d+=2; // Rally
+  if(isRanged && (zoneHasFeature(u.zone,'COVER') || ZONES[u.zone].effect==='cover') && attackerZone!==u.zone) d+=4; // Cover: harder to hit at range from outside
+  if(u.side==='merc'){
+    const stubTier=traitTier(u,'stubborn');
+    if(stubTier!==null && u.hp < u.maxHp*0.5) d += 2+2*stubTier; // both types
+    const cautTier=traitTier(u,'cautious');
+    if(cautTier!==null && (zoneHasFeature(u.zone,'COVER') || ZONES[u.zone].effect==='cover')) d += 2+2*cautTier; // both types
+    const bracedTier=traitTier(u,'braced');
+    if(bracedTier!==null && !isRanged && attackerZone===u.zone) d += 2+2*bracedTier; // both types
+    const surefootTier=traitTier(u,'surefoot');
+    if(surefootTier!==null && ZONES[u.zone].difficult) d += 1+surefootTier; // both types
+    const steadTier=traitTier(u,'steadfast');
+    if(steadTier!==null) d += 1+steadTier; // unconditional, both types
+  }
+  // Split-focus boss: two linked components empower each other while BOTH are alive.
+  // Killing either one strips this bonus from the survivor.
+  if(u.linkedPartnerId){
+    const partner = S.units[u.linkedPartnerId];
+    if(partner && partner.alive) d += LINKED_BOSS_DEFENSE_BONUS;
+  }
+  return d;
+}
+
+function inRange(actor, targetZone, baseRange){
+  if(baseRange===0) return targetZone===actor.zone;
+  if(zoneIsGlobalRange(actor.zone)) return true;
+  const eff = baseRange + zoneAddsRange(actor.zone);
+  return bfsDistance(actor.zone,targetZone) <= eff;
+}
+function isRangedAction(baseRange){ return baseRange>0; }
+
+// Effectiveness = (2A - D) / (2A). Floor 0%, no ceiling — negative Defense can push it past 100%.
+function computeEffectiveness(A, D){
+  if(A<=0) return 0;
+  return Math.max(0, (2*A - D) / (2*A));
+}
+
+function getRelevantAttack(attacker, defender, dmgType, isRanged){
+  let a = dmgType==='magical' ? attacker.magAtk : attacker.physAtk;
+  if(attacker.side==='merc'){
+    if(isRanged){
+      const preciseTier=traitTier(attacker,'precise');
+      if(preciseTier!==null) a += 2+2*preciseTier; // Precise boosts the relevant Attack stat, not flat damage
+    }
+    const finTier=traitTier(attacker,'finisher');
+    if(finTier!==null && defender && defender.hp < defender.maxHp*0.5) a += 2+2*finTier;
+    const vanTier=traitTier(attacker,'vanguard');
+    if(vanTier!==null && attacker.hasActed===false) a += 2+2*vanTier;
+    const reckTier=traitTier(attacker,'reckless');
+    if(reckTier!==null && attacker.hp < attacker.maxHp*0.5) a += 2+2*reckTier;
+  }
+  return a;
+}
+
+// Weapon mastery: raw Expertise (true skill, not capped by gear quality) grants a flat % boost
+// to effectiveness itself — not to the Attack stat, so it applies uniformly regardless of the
+// underlying Attack/Defense ratio. Based on RAW tier deliberately: a skilled fighter stuck with
+// Basic gear can't use their unlocked techniques, but still lands the techniques they CAN use
+// more precisely than a novice would.
+const MASTERY_EFFECTIVENESS_PER_TIER = 0.05;
+
+function masteryMultiplier(attacker){
+  if(attacker.side!=='merc') return 1;
+  return 1 + MASTERY_EFFECTIVENESS_PER_TIER * (attacker.rawExpertiseTier||0);
+}
+
+// Rolls weapon damage, resolves Attack vs Defense effectiveness, and returns the final integer damage.
+function resolveHit(attacker, defender, weaponAction){
+  const dmgType = weaponAction.dmgType || 'physical';
+  const isRanged = isRangedAction(weaponAction.range);
+  const rolled = rollDamage(weaponAction.dmgMin, weaponAction.dmgMax);
+  const A = getRelevantAttack(attacker, defender, dmgType, isRanged);
+  let D = getEffectiveDefense(defender, dmgType, isRanged, attacker.zone);
+  if(weaponAction.ignoreDef){ D -= weaponAction.ignoreDef; } // allowed to go negative — no flooring
+  const eff = computeEffectiveness(A, D) * masteryMultiplier(attacker);
+  return Math.round(rolled * eff);
+}
+
+// Enemy attacks use a fixed roll range + dmgType stored on the unit itself (they don't have a weaponAction).
+function resolveEnemyHit(attacker, defender){
+  const isRanged = attacker.range!==undefined && attacker.range>0;
+  const rolled = rollDamage(attacker.attackDmgMin, attacker.attackDmgMax);
+  const dmgType = attacker.attackDmgType || 'physical';
+  const A = dmgType==='magical' ? attacker.magAtk : attacker.physAtk;
+  const D = getEffectiveDefense(defender, dmgType, isRanged, attacker.zone);
+  const eff = computeEffectiveness(A, D); // enemies have no Expertise, no mastery multiplier
+  return Math.round(rolled * eff);
+}
+
+function watchtowerOccupant(){
+  const zoneId=zoneIdsByEffect('watchtower')[0];
+  return zoneId ? livingUnits().find(u=>u.zone===zoneId) : null;
+}
+
+function canMoveTo(unit,targetZone){
+  if(ZONE_SESSION && !ZONE_SESSION.canTraverse(unit.zone,targetZone)) return false;
+  if(!ZONE_SESSION && !ZONES[unit.zone].adj.includes(targetZone)) return false;
+  if(!zoneCapacityAllows(unit,targetZone)) return false;
+  return true;
+}
+
+function log(msg,cls){
+  const el=document.getElementById('log');
+  const d=document.createElement('div');
+  if(cls) d.className='evt-'+cls;
+  d.textContent=msg;
+  el.appendChild(d);
+  el.scrollTop=el.scrollHeight;
+}
+
+function d6(){return 1+Math.floor(Math.random()*6);}
+
+/* ============================== INITIATIVE ============================== */
+
+function insertIntoOrder(unitId){
+  const u=S.units[unitId];
+  u.initiative = u.spd + d6();
+  let idx=S.order.findIndex(id=>{
+    const o=S.units[id];
+    if(u.initiative!==o.initiative) return u.initiative>o.initiative;
+    if(u.spd!==o.spd) return u.spd>o.spd;
+    return Math.random()<0.5;
+  });
+  if(idx===-1) idx=S.order.length;
+  S.order.splice(idx,0,unitId);
+  // If we're mid-combat-pass and the new unit landed at or before the unit currently
+  // being processed, shift the pointer so it keeps referencing the same unit as before
+  // the insertion (otherwise activation would silently jump to the wrong unit).
+  if(S.stage==='combat' && idx<=S.ptr){ S.ptr++; }
+}
+
+function rollInitialInitiative(){
+  // enemies roll at battle start. A hidden unit (Ambusher) does NOT join initiative until revealed.
+  Object.keys(S.units).forEach(id=>{ if(!S.units[id].hidden) insertIntoOrder(id); });
+  log('Initiative rolled: '+S.order.map(id=>`${S.units[id].name} (${S.units[id].initiative})`).join(' → '));
+}
+
+/* ============================== ROUND / STAGE FLOW ============================== */
+
+function startBattle(difficultyKey, bossMode){
+  const node=getCurrentRunNode();
+  const resolvedForGeneration = bossMode ? 'boss' : (difficultyKey==='hard' ? 'hard' : 'normal');
+  const generatedEncounter=PrototypeCZoneGenerator.generate({
+    node,
+    difficulty:resolvedForGeneration,
+    bossMode:!!bossMode,
+    runNumber:CAMPAIGN.runNumber||1
+  });
+  applyGeneratedEncounter(generatedEncounter);
+
+  S = freshBattleState(difficultyKey, bossMode);
+  ZONE_SESSION = new PrototypeCGameHostAdapter(CURRENT_ZONE_ENCOUNTER);
+  ZONE_SESSION.start(Object.values(S.units).filter(u=>u.side==='enemy').map(u=>u.id));
+  HISTORY = [];
+  retreatConfirming = false;
+  document.getElementById('log').innerHTML='';
+  rollInitialInitiative();
+  const topoName=(CURRENT_ZONE_ENCOUNTER.topologyProfile?.id||'TOPO_UNKNOWN').replace('TOPO_','').replaceAll('_',' ');
+  log(`Zone Engine generated ${CURRENT_ZONE_ENCOUNTER.zones.length} zones using ${topoName}.`,'deploy');
+  const challengeNames=(CURRENT_ZONE_ENCOUNTER.challenges||[]).map(c=>c.title).join(' + ');
+  log(`Challenge Profile: ${CURRENT_ZONE_ENCOUNTER.challengeProfile || 'REFERENCE'} — ${challengeNames || 'Legacy objective'}.`,'deploy');
+  if(bossMode){
+    log('The Anchor and the Conduit stand ready — while both live, each empowers the other.');
+  } else {
+    log(`Mission difficulty: ${S.difficulty[0].toUpperCase()+S.difficulty.slice(1)} — ${Object.keys(S.units).length} enem${Object.keys(S.units).length===1?'y':'ies'}.`);
+  }
+  log('The company musters. Starting hand: '+S.hand.map(id=>CAMPAIGN.roster[id].name).join(', ')+'.');
+  if(Object.values(S.units).some(u=>u.hidden)){
+    log('Scouts warn that something may be lying in wait beyond Camp — its position is unknown until someone stumbles into it.');
+  }
+  CAMPAIGN.screen='battle';
+  renderScreen();
+  if(document.querySelector){
+    const mapCard = document.querySelector('.map-card');
+    if(mapCard && mapCard.scrollIntoView){ mapCard.scrollIntoView({behavior:'auto', block:'start'}); }
+  }
+  startRound();
+}
+
+function startRound(){
+  S.cp=S.cpMax;
+  S.ptr=0;
+  S.mode='idle';S.pendingAction=null;S.selectedActor=null;
+  if(S.round===1){
+    log('— Pre-Battle Deployment —','round');
+  } else {
+    log(`— Deployment After Round ${S.round-1} —`,'round');
+    if(S.deck.length>0){
+      const id=S.deck.shift();
+      S.hand.push(id);
+      const merc = CAMPAIGN.roster[id];
+      const drawnStats = currentStats(merc);
+      const drawnItem = equippedItemFor(id);
+      log(`Drawn: ${merc.name} (${computeArchetype(drawnStats,drawnItem)}).`,'deploy');
+    } else {
+      log('The expedition deck is empty — no card drawn.');
+    }
+  }
+  S.stage='deploy';
+  checkReserveArrivals();
+  checkGameOver();
+  if(S.stage!=='over') render();
+}
+
+function deployMerc(id){
+  if(S.stage!=='deploy') return;
+  if(S.cp<1) return;
+  if(aliveMercs().length>=ACTIVE_CAP) return;
+  if(S.totalDeployed>=MUSTER_CAP) return;
+  if(!S.hand.includes(id)) return;
+  S.hand = S.hand.filter(h=>h!==id);
+  S.units[id] = makeMercUnit(id, S.round);
+  S.cp -= 1;
+  S.totalDeployed++;
+  S.everDeployed.push(id);
+  insertIntoOrder(id);
+  log(`${CAMPAIGN.roster[id].name} deploys to Camp. (-1 CP) Rolled Initiative ${S.units[id].initiative}; ready to act this round. Muster: ${S.totalDeployed}/${MUSTER_CAP}.`,'deploy');
+  render();
+}
+
+function beginCombatStage(){
+  S.stage='combat';
+  S.spentThisTurn=0;
+  log(`— Round ${S.round} Combat —`,'round');
+  advanceMainPass();
+}
+
+function advanceMainPass(){
+  while(S.ptr < S.order.length){
+    const u = S.units[S.order[S.ptr]];
+    if(!u.alive){ S.ptr++; continue; }
+    break;
+  }
+  if(S.ptr >= S.order.length){
+    endRound();
+    return;
+  }
+  const unit = S.units[S.order[S.ptr]];
+  clearDefendOnActivationStart(unit);
+
+  if(unit.side==='enemy'){
+    runEnemyAI(unit);
+    S.ptr++;
+    checkGameOver();
+    if(S.stage!=='over') advanceMainPass();
+    return;
+  } else {
+    S.mode='idle';
+    S.pendingAction=null;
+    S.selectedActor=unit.id;
+    S.spentThisTurn=0;
+    render();
+  }
+}
+
+function clearDefendOnActivationStart(unit){ unit.defBonusBoth=0; unit.defBonusPhys=0; unit.defBonusMag=0; unit.debuffBoth=0; unit.freeStrikeUsedThisTurn=false; }
+
+function endActorTurn(){
+  const u = S.units[S.selectedActor];
+  if(u && u.side==='merc') u.hasActed = true;
+  S.ptr++;
+  checkGameOver();
+  if(S.stage!=='over') advanceMainPass();
+}
+
+function endRound(){
+  if(S.round>=200) return;
+  S.round++;
+  startRound();
+}
+
+function checkGameOver(){
+  const livingHostiles = aliveEnemies().length;
+  const encounterStatus = ZONE_SESSION
+    ? ZONE_SESSION.evaluateEncounter({
+        livingHostiles,
+        livingMercZones:aliveMercs().map(m=>m.zone)
+      })
+    : (livingHostiles===0 ? 'COMPLETED' : 'ACTIVE');
+
+  if(encounterStatus==='COMPLETED'){
+    S.stage='over';
+    resolveBattleEnd(true);
+    return;
+  }
+
+  const deploymentExhausted = S.totalDeployed>=MUSTER_CAP || (S.hand.length===0 && S.deck.length===0);
+  if(aliveMercs().length===0 && deploymentExhausted){
+    if(ZONE_SESSION) ZONE_SESSION.fail('PARTY_DEFEATED');
+    S.stage='over';
+    resolveBattleEnd(false);
+  }
+}
+
+/* ============================== ACTIONS ============================== */
+
+function spendCP(cost){
+  S.cp -= cost;
+  S.spentThisTurn += cost;
+}
+
+function doMove(unit, targetZone){
+  const fromZone = unit.zone;
+  if(ZONE_SESSION && !ZONE_SESSION.canTraverse(fromZone,targetZone)){
+    throw new Error(`Zone Engine rejected traversal ${fromZone} -> ${targetZone}.`);
+  }
+  const fleetTier = unit.side==='merc' ? traitTier(unit,'fleet') : null;
+  const freeMovesAllowed = fleetTier!==null ? 1+fleetTier : 0;
+  const isFree = unit.freeMovesUsed!==undefined && unit.freeMovesUsed < freeMovesAllowed;
+  unit.zone = targetZone;
+  if(isFree){
+    unit.freeMovesUsed++;
+    log(`${unit.name} moves to ${ZONES[targetZone].name}. (Fleet — 0 CP)`);
+  } else {
+    const sureTier = unit.side==='merc' ? traitTier(unit,'surefoot') : null;
+    const isDifficult = zoneIsDifficult(targetZone) && sureTier===null;
+    const cost = isDifficult ? 2 : 1;
+    spendCP(cost);
+    log(`${unit.name} moves to ${ZONES[targetZone].name}.${isDifficult?' (Difficult terrain)':''} (-${cost} CP)`);
+  }
+  if(ZONE_SESSION){
+    ZONE_SESSION.submitZoneEntered(unit.id,fromZone,targetZone);
+  }
+  applyHazardOnEntry(unit,targetZone);
+  if(unit.side==='merc'){
+    checkAmbushTrigger(unit, targetZone);
+    checkBlockerTrigger(unit, targetZone);
+  }
+}
+
+function checkAmbushTrigger(mercUnit, targetZone){
+  Object.values(S.units).forEach(amb=>{
+    if(amb.side==='enemy' && amb.role==='Ambusher' && amb.alive && amb.hidden && amb.zone===targetZone){
+      amb.hidden = false;
+      log(`⚔ ${amb.name} was lying in wait in ${ZONES[targetZone].name}! It strikes ${mercUnit.name} before they can react.`,'death');
+      resolveAttackFree(amb,[mercUnit],'Ambush Attack');
+      insertIntoOrder(amb.id);
+      log(`${amb.name} rolls Initiative ${amb.initiative} and joins the fight.`,'deploy');
+    }
+  });
+}
+
+// Blocker: moving INTO its zone provokes an immediate free strike — unlike the Ambusher this
+// isn't a one-time surprise, it fires every time (leaving is always safe, arriving never is).
+function checkBlockerTrigger(mercUnit, targetZone){
+  Object.values(S.units).forEach(b=>{
+    if(b.side==='enemy' && b.role==='Blocker' && b.alive && b.zone===targetZone){
+      log(`${b.name} strikes ${mercUnit.name} as they push into ${ZONES[targetZone].name}.`);
+      resolveAttackFree(b,[mercUnit],'Blocking Strike');
+    }
+  });
+}
+
+// Reserve: starts off the board (hidden, no zone participation) and arrives on a scheduled round
+// regardless of merc movement — reinforcing wherever it's stationed rather than ambushing.
+function checkReserveArrivals(){
+  Object.values(S.units).forEach(r=>{
+    if(r.side==='enemy' && r.role==='Reserve' && r.alive && r.hidden && r.reserveRound!==undefined && S.round>=r.reserveRound){
+      r.hidden=false;
+      log(`⚑ Reinforcements arrive: ${r.name} joins the fight from ${ZONES[r.zone].name}!`,'deploy');
+      insertIntoOrder(r.id);
+    }
+  });
+}
+
+function doDefend(unit){
+  unit.defBonusBoth = Math.max(unit.defBonusBoth||0, 4);
+  spendCP(1);
+  log(`${unit.name} braces. +4 Guard and Ward until next activation. (-1 CP)`);
+}
+
+// Heal is the first ally-targeted action in the game -- every other skill targets enemies.
+// Kept deliberately simple: flat 2-4 HP (not scaled by tier/rarity, per design), no Relentless
+// interaction (that trait is themed around aggression), capped at the target's max HP.
+function doHeal(caster, target, weaponAction){
+  spendCP(weaponAction.cost);
+  const amount = rollDamage(weaponAction.healMin, weaponAction.healMax);
+  const before = target.hp;
+  target.hp = Math.min(target.maxHp, target.hp + amount);
+  const actualHealed = target.hp - before;
+  log(`${caster.name} heals ${target.name} for ${actualHealed} HP.`, 'heal');
+}
+
+function doAttack(unit, targets, weaponAction){
+  if(weaponAction.freeStrike) unit.freeStrikeUsedThisTurn = true;
+  let cost = weaponAction.cost;
+  if(unit.side==='merc'){
+    const relTier = traitTier(unit,'relentless');
+    if(relTier!==null){
+      const allowed = 1+relTier;
+      if((unit.freeAttackDiscountUsed||0) < allowed){
+        cost = Math.max(1, cost-1);
+        unit.freeAttackDiscountUsed = (unit.freeAttackDiscountUsed||0)+1;
+      }
+    }
+  }
+  spendCP(cost);
+  let finalTargets = targets;
+  if(weaponAction.maxTargets && targets.length>weaponAction.maxTargets){
+    finalTargets = targets.slice().sort((a,b)=>a.hp-b.hp).slice(0,weaponAction.maxTargets);
+  }
+  const hitNames=[];
+  finalTargets.forEach(t=>{
+    const dmg = resolveHit(unit,t,weaponAction);
+    t.hp = Math.max(0,t.hp-dmg);
+    hitNames.push(`${t.name} (-${dmg} HP${t.hp<=0?', DOWN':''})`);
+    if(weaponAction.debuff && t.alive){
+      t.debuffBoth = Math.max(t.debuffBoth||0, weaponAction.debuff);
+    }
+    if(t.hp<=0 && t.alive){
+      t.alive=false;
+      if(t.side==='merc'){ S.defeated.push(t.id); }
+      if(ZONE_SESSION){ ZONE_SESSION.submitEntityDefeated(t.id,t.side); }
+      log(`${t.name} has been defeated!`,'death');
+    }
+  });
+  if(weaponAction.selfDef){
+    if(weaponAction.dmgType==='magical'){ unit.defBonusMag = Math.max(unit.defBonusMag||0, weaponAction.selfDef); }
+    else { unit.defBonusPhys = Math.max(unit.defBonusPhys||0, weaponAction.selfDef); }
+  }
+  log(`${unit.name} uses ${weaponAction.label} on ${hitNames.join(', ')}. (-${weaponAction.cost} CP)`,'dmg');
+}
+
+/* ============================== ENEMY AI ============================== */
+
+function runEnemyAI(unit){
+  if(unit.role==='Anchor') meleeEnemyBrain(unit);
+  else if(unit.role==='Conduit') brainArcher(unit);
+  else if(unit.role==='Seeker') brainSeeker(unit);
+  else if(unit.role==='Guard') brainGuard(unit);
+  else if(unit.role==='Blocker') brainBlocker(unit);
+  else if(unit.role==='Patrol') brainPatrol(unit);
+  else if(unit.role==='Ambusher') brainSeeker(unit);
+  else if(unit.role==='Reserve') brainSeeker(unit);
+  else if(unit.role==='ObjectiveGuard') brainGuard(unit);
+}
+
+// Shared "chase and attack in melee" behavior — used directly by the boss's Anchor, and as the
+// melee-body half of the generic Seeker role below.
+function meleeEnemyBrain(unit){
+  const mercs = aliveMercs();
+  if(mercs.length===0){ log(`${unit.name} finds no target and holds its ground.`); return; }
+  const sameZoneMercs = spottedAliveMercs().filter(m=>m.zone===unit.zone);
+  if(sameZoneMercs.length>0){
+    const target = sameZoneMercs.sort((a,b)=>a.hp-b.hp)[0];
+    resolveAttackFree(unit,expandAoeTargets(unit,target,sameZoneMercs),'Attack');
+    return;
+  }
+  let best=null,bestDist=Infinity;
+  mercs.forEach(m=>{
+    const dist=bfsDistance(unit.zone,m.zone);
+    if(dist<bestDist || (dist===bestDist && best && m.hp<best.hp)){ bestDist=dist; best=m; }
+  });
+  if(!best) return;
+  const step = firstStepToward(unit.zone,best.zone,unit);
+  if(step){ unit.zone=step; log(`${unit.name} advances to ${ZONES[step].name}.`); }
+}
+
+function brainArcher(unit){
+  const mercs = aliveMercs();
+  if(mercs.length===0){ log(`${unit.name} finds no target and holds its ground.`); return; }
+  const range = unit.range + zoneAddsRange(unit.zone);
+  const inR = spottedAliveMercs().filter(m=> zoneIsGlobalRange(unit.zone) ? true : bfsDistance(unit.zone,m.zone)<=range);
+  if(inR.length>0){
+    const target = inR.sort((a,b)=>a.hp-b.hp)[0];
+    resolveAttackFree(unit,expandAoeTargets(unit,target,inR),'Attack');
+    return;
+  }
+  const candidates = ZONES[unit.zone].adj.filter(z=>zoneCapacityAllows(unit,z));
+  if(candidates.length===0) return;
+  let scored = candidates.map(z=>{
+    const dist = Math.min(...mercs.map(m=>bfsDistance(z,m.zone)));
+    const wouldBeInRange = dist <= unit.range;
+    const isCover = zoneHasFeature(z,'COVER') || ZONES[z].effect==='cover';
+    return {z,dist,wouldBeInRange,isCover};
+  });
+  scored.sort((a,b)=>{
+    if(a.wouldBeInRange!==b.wouldBeInRange) return a.wouldBeInRange? -1:1;
+    if(a.isCover!==b.isCover) return a.isCover? -1:1;
+    return a.dist-b.dist;
+  });
+  const choice=scored[0];
+  unit.zone=choice.z;
+  log(`${unit.name} repositions to ${ZONES[choice.z].name}.`);
+}
+
+// Seeker role: chases down enemies. Reads the assigned body's own range to decide HOW to pursue
+// — melee bodies (range 0) close distance directly (meleeEnemyBrain), ranged bodies reposition
+// toward attack range while preferring Cover (brainArcher) — so the same role works correctly
+// on any body it's assigned to. Also used post-reveal/post-arrival by Ambusher and Reserve.
+function brainSeeker(unit){
+  if((unit.range||0) > 0) brainArcher(unit);
+  else meleeEnemyBrain(unit);
+}
+
+function firstStepToward(from,to,unit){
+  let seen=new Set([from]), q=[[from,[]]];
+  while(q.length){
+    const [z,path]=q.shift();
+    if(z===to) return path[0]||null;
+    for(const n of ZONES[z].adj){
+      if(seen.has(n)) continue;
+      if(!zoneCapacityAllows(unit,n)) continue;
+      seen.add(n);
+      q.push([n,[...path,n]]);
+    }
+  }
+  return null;
+}
+
+// Guard: holds its assigned zone. Attacks anyone who enters its zone (or comes into range, if
+// ranged) but never chases — leaving its zone is always safe. Also used for Objective Guard
+// (identical AI; the "protects the mission objective" framing needs a real objectives system
+// that doesn't exist yet, so for now it's mechanically just a Guard planted somewhere meaningful).
+function brainGuard(unit){
+  const mercs = aliveMercs();
+  if(mercs.length===0){ log(`${unit.name} holds its position.`); return; }
+  const range = (unit.range||0) + zoneAddsRange(unit.zone);
+  const inR = range>0
+    ? spottedAliveMercs().filter(m=> zoneIsGlobalRange(unit.zone) ? true : bfsDistance(unit.zone,m.zone)<=range)
+    : spottedAliveMercs().filter(m=>m.zone===unit.zone);
+  if(inR.length>0){
+    const target = inR.sort((a,b)=>a.hp-b.hp)[0];
+    resolveAttackFree(unit,expandAoeTargets(unit,target,inR),'Attack');
+  } else {
+    log(`${unit.name} holds its position, watching for approach.`);
+  }
+}
+
+// Blocker: same static defense as Guard, but also punishes anyone who moves INTO its zone with
+// an immediate free strike (see the movement code in doMove) — leaving is safe, arriving is not.
+// Reuses brainGuard for its own scheduled turn; the interrupt strike is triggered elsewhere.
+function brainBlocker(unit){ brainGuard(unit); }
+
+// Patrol: cycles through a fixed route of zones, one step per round, when nothing's in range —
+// unlike Guard it never just waits, and unlike Seeker it gives up the chase once a target moves
+// out of range rather than pursuing indefinitely.
+function brainPatrol(unit){
+  const mercs = aliveMercs();
+  const range = (unit.range||0) + zoneAddsRange(unit.zone);
+  const inR = range>0
+    ? spottedAliveMercs().filter(m=> zoneIsGlobalRange(unit.zone) ? true : bfsDistance(unit.zone,m.zone)<=range)
+    : spottedAliveMercs().filter(m=>m.zone===unit.zone);
+  if(inR.length>0){
+    const target = inR.sort((a,b)=>a.hp-b.hp)[0];
+    resolveAttackFree(unit,expandAoeTargets(unit,target,inR),'Attack');
+    return;
+  }
+  if(unit.patrolRoute && unit.patrolRoute.length>0){
+    unit.patrolIndex = ((unit.patrolIndex||0)+1) % unit.patrolRoute.length;
+    const nextZone = unit.patrolRoute[unit.patrolIndex];
+    if(ZONES[unit.zone].adj.includes(nextZone) || unit.zone===nextZone){
+      unit.zone = nextZone;
+      log(`${unit.name} patrols to ${ZONES[nextZone].name}.`);
+    }
+  }
+}
+
+// If the attacker has aoe:true, expand a single chosen target into every spotted merc sharing
+// that target's zone — the enemy-side mirror of how merc AoE weapon actions (Fireburst,
+// Piercing Shot) work. `candidatePool` is whatever the brain already filtered as spotted/in-range.
+function expandAoeTargets(unit, primaryTarget, candidatePool){
+  if(!unit.aoe || !primaryTarget) return primaryTarget ? [primaryTarget] : [];
+  return candidatePool.filter(m=>m.zone===primaryTarget.zone);
+}
+
+function resolveAttackFree(attacker,targets,label){
+  const hitNames=[];
+  targets.forEach(t=>{
+    const dmg=resolveEnemyHit(attacker,t);
+    t.hp=Math.max(0,t.hp-dmg);
+    hitNames.push(`${t.name} (-${dmg} HP${t.hp<=0?', DOWN':''})`);
+    if(t.hp<=0 && t.alive){
+      t.alive=false;
+      if(t.side==='merc'){ S.defeated.push(t.id); }
+      if(ZONE_SESSION){ ZONE_SESSION.submitEntityDefeated(t.id,t.side); }
+      log(`${t.name} has been defeated!`,'death');
+    }
+    // Controller (Hexer): every successful hit also weakens the target's Guard/Ward until it
+    // next acts — the enemy-side mirror of the Wand's Weaken/Arcane Bolt.
+    if(t.alive && attacker.debuffOnHit){
+      let mag = attacker.debuffOnHit;
+      if(t.side==='merc'){
+        const resTier = traitTier(t,'resilient');
+        if(resTier!==null) mag = Math.max(0, mag-(2+2*resTier));
+      }
+      if(mag>0){
+        t.debuffBoth = (t.debuffBoth||0) + mag;
+        log(`${t.name} is weakened (-${mag} Guard and Ward until it next acts).`);
+      } else {
+        log(`${t.name} resists the debuff entirely (Resilient).`);
+      }
+    }
+    // Controller (Displacer): every successful hit also force-moves the target to a random
+    // adjacent zone — a real, if involuntary, move, so it still triggers Blocker/Ambusher
+    // zone-entry effects exactly like a merc choosing to move there themselves would.
+    // Steadfast mercs are immune to this entirely.
+    if(t.alive && attacker.forcedMoveOnHit && t.side==='merc' && traitTier(t,'steadfast')===null){
+      const options = ZONES[t.zone].adj.filter(z=>zoneCapacityAllows(t,z));
+      if(options.length>0){
+        const newZone = options[Math.floor(Math.random()*options.length)];
+        const oldZoneName = ZONES[t.zone].name;
+        t.zone = newZone;
+        log(`${t.name} is forced from ${oldZoneName} to ${ZONES[newZone].name}!`);
+        checkAmbushTrigger(t, newZone);
+        checkBlockerTrigger(t, newZone);
+      }
+    } else if(t.alive && attacker.forcedMoveOnHit && t.side==='merc'){
+      log(`${t.name} stands firm against the forced movement (Steadfast).`);
+    }
+  });
+  log(`${attacker.name} attacks ${hitNames.join(', ')}.`,'dmg');
+}
+
+/* ============================== RENDER ============================== */
+
+function render(){
+  renderHeader();
+  renderMap();
+  renderCompany();
+  renderHostiles();
+  renderLadder();
+  renderAction();
+}
+
+function renderHeader(){
+  document.getElementById('battleNum').textContent = CAMPAIGN? CAMPAIGN.runNumber : 0;
+  document.getElementById('goldNum').textContent = CAMPAIGN? CAMPAIGN.gold : 0;
+  if(S){
+    document.getElementById('roundNum').textContent=S.round;
+    document.getElementById('cpNum').textContent=S.cp;
+    const pipsEl=document.getElementById('cpPips');
+    pipsEl.innerHTML='';
+    for(let i=0;i<S.cpMax;i++){
+      const p=document.createElement('div');
+      p.className='pip'+(i<S.cp?' on':'');
+      pipsEl.appendChild(p);
+    }
+  }
+  const expeditionBox = document.getElementById('expeditionBox');
+  const headerBeginBtn = document.getElementById('headerBeginBtn');
+  if(CAMPAIGN && CAMPAIGN.screen==='company'){
+    expeditionBox.style.display='';
+    if(CAMPAIGN.run){
+      headerBeginBtn.disabled = false;
+      headerBeginBtn.textContent = 'Return →';
+    } else {
+      const availCount = availableMercIds().length;
+      headerBeginBtn.disabled = availCount<3;
+      headerBeginBtn.textContent = availCount>=3 ? 'Begin Run →' : 'Need 3+ mercenaries';
+    }
+  } else {
+    expeditionBox.style.display='none';
+  }
+}
+
+
+
+function renderCompany(){
+  const body=document.getElementById('companyBody');
+  body.innerHTML='';
+
+  const row=document.createElement('div');
+  row.className='company-row';
+  row.innerHTML=`<span>Deck: <b>${S.deck.length}</b></span><span>Active: <b>${aliveMercs().length}/${ACTIVE_CAP}</b></span><span>Muster: <b>${S.totalDeployed}/${MUSTER_CAP}</b></span>`;
+  body.appendChild(row);
+
+  const handLabel=document.createElement('div');
+  handLabel.className='rules-note';
+  handLabel.style.margin='0 0 6px';
+  handLabel.textContent='Hand';
+  body.appendChild(handLabel);
+
+  const handRow=document.createElement('div');
+  handRow.className='chip-row';
+  if(S.hand.length===0){
+    handRow.innerHTML='<span class="empty-note">Empty</span>';
+  } else {
+    S.hand.forEach(id=>{
+      const merc=CAMPAIGN.roster[id];
+      const stats=currentStats(merc);
+      const item=equippedItemFor(id);
+      const chip=document.createElement('div');
+      chip.className='hand-chip';
+      const canDeploy = S.stage==='deploy' && S.cp>=1 && aliveMercs().length<ACTIVE_CAP && S.totalDeployed<MUSTER_CAP;
+      chip.innerHTML=`
+        <div class="hcname">${merc.name}</div>
+        <div class="hccls">${computeArchetype(stats,item)} · Lv${merc.level}</div>
+        <div class="hcstats">HP${stats.hp} PROW${stats.physAtk} ARC${stats.magAtk} SPD${stats.spd}</div>
+        <div class="hcstats">GRD${stats.physDef} WARD${stats.magDef}</div>
+        <div class="hcstats">${item? item.name : 'No weapon equipped'}</div>
+        <button ${canDeploy?'':'disabled'}>Deploy · 1 CP</button>
+      `;
+      if(canDeploy) chip.querySelector('button').onclick=()=>{ snapshot(); deployMerc(id); };
+      handRow.appendChild(chip);
+    });
+  }
+  body.appendChild(handRow);
+
+  const defLabel=document.createElement('div');
+  defLabel.className='rules-note';
+  defLabel.style.margin='0 0 6px';
+  defLabel.textContent='Defeated (this battle)';
+  body.appendChild(defLabel);
+
+  const defRow=document.createElement('div');
+  defRow.className='chip-row';
+  if(S.defeated.length===0){
+    defRow.innerHTML='<span class="empty-note">None</span>';
+  } else {
+    S.defeated.forEach(id=>{
+      const chip=document.createElement('div');
+      chip.className='defeated-chip';
+      chip.textContent=CAMPAIGN.roster[id].name;
+      defRow.appendChild(chip);
+    });
+  }
+  body.appendChild(defRow);
+}
+
+function renderHostiles(){
+  const body=document.getElementById('hostilesBody');
+  body.innerHTML='';
+
+  if(ZONE_SESSION && CURRENT_ZONE_ENCOUNTER?.challenges?.length){
+    const snap=ZONE_SESSION.getChallengeSnapshot();
+    const label=document.createElement('div');
+    label.className='rules-note';
+    label.style.margin='0 0 6px';
+    label.textContent='Expedition Challenges';
+    body.appendChild(label);
+
+    CURRENT_ZONE_ENCOUNTER.challenges.forEach(ch=>{
+      const state=snap.states[ch.challengeId]?.state || 'INACTIVE';
+      const row=document.createElement('div');
+      row.className='company-row';
+      row.innerHTML=`<span><b>${state==='COMPLETED'?'✓ ':''}${ch.title}</b></span><span>${state}</span>`;
+      body.appendChild(row);
+
+      const desc=document.createElement('div');
+      desc.className='rules-note';
+      desc.style.margin='-3px 0 7px';
+      desc.textContent=ch.description;
+      body.appendChild(desc);
+    });
+  }
+
+  const enemies = Object.values(S.units).filter(u=>u.side==='enemy');
+  const total = enemies.length;
+  const remaining = enemies.filter(e=>e.alive).length;
+  // "Unrevealed" now covers two cases: scripted-hidden (Ambusher pre-reveal, Reserve pre-arrival)
+  // AND fog of war (no merc currently adjacent to/sharing its zone) — both render identically.
+  const isFogged = e => e.hidden || !isZoneSpottedBy(e.zone,'merc');
+  const revealedRemaining = enemies.filter(e=>e.alive && !isFogged(e)).length;
+  const hiddenRemaining = remaining - revealedRemaining;
+
+  const row=document.createElement('div');
+  row.className='company-row';
+  row.innerHTML = hiddenRemaining>0
+    ? `<span>Remaining: <b>${remaining}/${total}</b></span><span>${hiddenRemaining} still unrevealed</span>`
+    : `<span>Remaining: <b>${remaining}/${total}</b></span>`;
+  body.appendChild(row);
+
+  const chipRow=document.createElement('div');
+  chipRow.className='chip-row';
+  enemies.forEach(e=>{
+    const chip=document.createElement('div');
+    if(!e.alive){
+      chip.className='defeated-chip';
+      chip.textContent=e.name;
+    } else if(isFogged(e)){
+      chip.className='hand-chip';
+      chip.innerHTML=`<div class="hcname">???</div><div class="hccls">Unrevealed threat</div>`;
+    } else {
+      chip.className='hand-chip';
+      chip.innerHTML=`
+        <div class="hcname">${e.name}</div>
+        <div class="hccls">${e.role}</div>
+        <div class="hcstats">HP ${e.hp}/${e.maxHp}</div>
+      `;
+    }
+    chipRow.appendChild(chip);
+  });
+  body.appendChild(chipRow);
+}
+
+function renderMap(){
+  const area=document.getElementById('mapArea');
+  area.querySelectorAll('.zone').forEach(e=>e.remove());
+
+  const svg=area.querySelector('svg.lines');
+  svg.innerHTML='';
+  const drawn=new Set();
+  Object.keys(ZONES).forEach(zid=>{
+    ZONES[zid].adj.forEach(n=>{
+      const key=[zid,n].sort().join('-');
+      if(drawn.has(key)) return;
+      drawn.add(key);
+      const p1=ZONE_POS[zid], p2=ZONE_POS[n];
+      const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+      line.setAttribute('x1',p1.x*10);line.setAttribute('y1',p1.y*10);
+      line.setAttribute('x2',p2.x*10);line.setAttribute('y2',p2.y*10);
+      svg.appendChild(line);
+    });
+  });
+
+  const targetableZones = getTargetableZones();
+
+  Object.keys(ZONES).forEach(zid=>{
+    const z=ZONES[zid];
+    const pos=ZONE_POS[zid];
+    const div=document.createElement('div');
+    div.className='zone'+(targetableZones.has(zid)?' targetable':'');
+    div.style.left=pos.x+'%';
+    div.style.top=pos.y+'%';
+
+    const occupants = livingUnits().filter(u=>u.zone===zid && !u.hidden && (u.side==='merc' || isZoneSpottedBy(u.zone,'merc')));
+    const tokensHtml = occupants.map(u=>tokenHtml(u)).join('');
+
+    const badges=[];
+    badges.push(`<span class="zone-badge cap">CAP ${z.cap ?? '∞'}/SIDE</span>`);
+    if(z.terrain?.difficult) badges.push('<span class="zone-badge difficult">DIFFICULT</span>');
+    if(z.terrain?.hazardous) badges.push('<span class="zone-badge hazard">HAZARDOUS</span>');
+    if((z.features||[]).includes('COVER')) badges.push('<span class="zone-badge cover">COVER</span>');
+    if((z.features||[]).includes('HIGH_GROUND')) badges.push('<span class="zone-badge high">HIGH GROUND</span>');
+    if((z.features||[]).includes('RALLY')) badges.push('<span class="zone-badge rally">RALLY</span>');
+    if((z.features||[]).includes('WATCHTOWER')) badges.push('<span class="zone-badge watch">WATCHTOWER</span>');
+    if(z.structural?.objective) badges.push('<span class="zone-badge objective">OBJECTIVE</span>');
+
+    const effectParts=[];
+    if(z.terrain?.difficult) effectParts.push('Difficult');
+    if(z.terrain?.hazardous) effectParts.push('Hazardous');
+    if((z.features||[]).includes('COVER')) effectParts.push('Cover');
+    if((z.features||[]).includes('HIGH_GROUND')) effectParts.push('High Ground');
+    if((z.features||[]).includes('RALLY')) effectParts.push('Rally');
+    if((z.features||[]).includes('WATCHTOWER')) effectParts.push('Watchtower');
+
+    const mercOcc=zoneFriendlyOccupancy(zid);
+    const enemyOcc=zoneEnemyOccupancy(zid);
+    const capText=z.cap==null?'∞':z.cap;
+    const zoneSpotted=isZoneSpottedBy(zid,'merc');
+    const enemyOccText=zoneSpotted ? `${enemyOcc}/${capText}` : `?/${capText}`;
+
+    div.innerHTML = `
+      <div class="zname">${z.name}</div>
+      <div class="zone-info-row">${badges.join('')}</div>
+      <div class="zeffect">${effectParts.join(' · ')}</div>
+      <div class="zone-occ">
+        <span>Merc <strong>${mercOcc}/${capText}</strong></span>
+        <span>Enemy <strong>${enemyOccText}</strong></span>
+      </div>
+      <div class="ztokens">${tokensHtml}</div>
+    `;
+
+    if(targetableZones.has(zid)){
+      div.addEventListener('click',()=>onZoneClick(zid));
+    }
+    area.appendChild(div);
+  });
+
+  const targetableUnitIds = getTargetableUnitIds();
+  area.querySelectorAll('.token').forEach(tok=>{
+    const uid=tok.dataset.id;
+    if(targetableUnitIds.has(uid)){
+      tok.classList.add('selectable');
+      tok.addEventListener('click',(e)=>{e.stopPropagation();onUnitClick(uid);});
+    }
+  });
+}
+
+function tokenHtml(u){
+  const pct = Math.max(0,Math.round(100*u.hp/u.maxHp));
+  const isNew = u.side==='merc' && u.deployedRound===S.round;
+  const cls='token '+u.side+(u.alive?'':' dead');
+  const shield = ((u.defBonusBoth||0)+(u.defBonusPhys||0)+(u.defBonusMag||0)>0)? '<span class="defshield">🛡</span>':'';
+  const newTag = isNew? '<span class="zzz" title="Deployed this round">★</span>':'';
+  return `<div class="${cls}" data-id="${u.id}" title="${u.name}${isNew?' (newly deployed)':''}">
+    ${newTag}${u.name[0]}${shield}
+    <div class="hpbar"><div class="hpfill" style="width:${pct}%"></div></div>
+  </div>`;
+}
+
+const INITIATIVE_WINDOW_SIZE = 4;
+
+function renderLadder(){
+  const strip=document.getElementById('hdrInitiativeStrip');
+  strip.innerHTML='';
+  strip.style.display = (CAMPAIGN && CAMPAIGN.screen==='battle') ? '' : 'none';
+  if(!S || S.order.length===0){
+    return;
+  }
+  // Sliding window of up to 4: starts at the current pointer and looks forward, skipping dead
+  // units. As the round progresses (ptr advances), units that have already acted drop off the
+  // front and the next not-yet-acted unit appears at the back — a scrolling "up next" queue
+  // rather than a static list of everyone in the fight.
+  const windowEntries = [];
+  let idx = S.ptr;
+  while(idx < S.order.length && windowEntries.length < INITIATIVE_WINDOW_SIZE){
+    const uid = S.order[idx];
+    if(S.units[uid].alive){ windowEntries.push({uid, idx}); }
+    idx++;
+  }
+  windowEntries.forEach(({uid,idx})=>{
+    const u=S.units[uid];
+    const isNew = u.alive && u.deployedRound===S.round;
+    const isCurrent = S.stage==='combat' && idx===S.ptr;
+    const isFogged = u.side==='enemy' && !isZoneSpottedBy(u.zone,'merc');
+    const chip=document.createElement('div');
+    chip.className='init-chip'+(isCurrent?' current':'')+(isNew?' dormant':'');
+    const clsSuffix = u.side==='enemy' ? '' : ` (${u.cls})`; // enemy names already include their role, e.g. "Brute (Guard)"
+    chip.title= isFogged ? `Unrevealed threat — Initiative ${u.initiative}` : `${u.name}${clsSuffix} — Initiative ${u.initiative}${isNew?' — just deployed':''}`;
+    chip.innerHTML=`
+      <span class="chip-dot ${u.side}"></span>
+      <span class="chip-name">${isFogged ? '???' : u.name}</span>
+      <span class="chip-iv">${u.initiative}</span>
+    `;
+    strip.appendChild(chip);
+  });
+}
+
+/* ---- targeting state helpers ---- */
+
+function getTargetableZones(){
+  const set=new Set();
+  if(S.mode==='choose-target' && S.pendingAction){
+    const {actorId,kind,weaponAction}=S.pendingAction;
+    const actor=S.units[actorId];
+    if(kind==='move'){
+      ZONES[actor.zone].adj.forEach(z=>{ if(canMoveTo(actor,z)) set.add(z); });
+    } else if(kind==='attack' && weaponAction.aoe && weaponAction.range>0){
+      Object.keys(ZONES).forEach(z=>{
+        if(z===actor.zone) return;
+        if(!inRange(actor,z,weaponAction.range)) return;
+        const hasEnemy = visibleAliveEnemies().some(e=>e.zone===z);
+        if(hasEnemy) set.add(z);
+      });
+    }
+  }
+  return set;
+}
+
+function getTargetableUnitIds(){
+  const set=new Set();
+  if(S.mode==='choose-target' && S.pendingAction){
+    const {actorId,kind,weaponAction}=S.pendingAction;
+    const actor=S.units[actorId];
+    if(kind==='attack' && weaponAction.heal){
+      aliveMercs().forEach(m=>{ if(inRange(actor,m.zone,weaponAction.range)) set.add(m.id); });
+    } else if(kind==='attack' && !weaponAction.aoe){
+      visibleAliveEnemies().forEach(e=>{ if(inRange(actor,e.zone,weaponAction.range)) set.add(e.id); });
+    }
+  }
+  return set;
+}
+
+/* ---- click handlers ---- */
+
+function onZoneClick(zid){
+  const {actorId,kind,weaponAction}=S.pendingAction;
+  const actor=S.units[actorId];
+  if(kind==='move'){
+    doMove(actor,zid);
+    finishActorAction(actor);
+  } else if(kind==='attack' && weaponAction.aoe && weaponAction.range>0){
+    const targets = visibleAliveEnemies().filter(e=>e.zone===zid);
+    doAttack(actor,targets,weaponAction);
+    finishActorAction(actor);
+  }
+}
+
+function onUnitClick(uid){
+  const {actorId,kind,weaponAction}=S.pendingAction;
+  const actor=S.units[actorId];
+  const target=S.units[uid];
+  if(kind==='attack' && weaponAction.heal){
+    doHeal(actor,target,weaponAction);
+  } else if(kind==='attack'){
+    doAttack(actor,[target],weaponAction);
+  }
+  finishActorAction(actor);
+}
+
+function finishActorAction(actor){
+  S.mode='idle';
+  S.pendingAction=null;
+  checkGameOver();
+  if(S.stage==='over') { render(); return; }
+  if(S.cp<=0){
+    log(`${actor.name} has no Command Points left and ends their activation.`);
+    endActorTurn();
+  } else if(S.spentThisTurn>=MAX_CP_PER_ACTIVATION){
+    log(`${actor.name} has reached the ${MAX_CP_PER_ACTIVATION}-CP activation limit and ends their turn.`);
+    endActorTurn();
+  } else {
+    render();
+  }
+}
+
+/* ============================== ACTION PANEL ============================== */
+
+function renderAction(){
+  const body=document.getElementById('actionBody');
+  body.innerHTML='';
+
+  renderUndoButton(body);
+
+  if(CAMPAIGN.run && S.stage!=='over'){
+    if(retreatConfirming){
+      const warn=document.createElement('div');
+      warn.className='rules-note';
+      warn.style.color='var(--warn)';
+      warn.style.margin='0 0 6px';
+      warn.textContent = 'Retreat and lose this reward? One deployed mercenary will be Shaken.';
+      body.appendChild(warn);
+      const confirmBtn=document.createElement('button');
+      confirmBtn.id='cancelTargetBtn';
+      confirmBtn.style.display='block';
+      confirmBtn.style.borderColor='var(--warn)';
+      confirmBtn.style.color='var(--warn)';
+      confirmBtn.textContent='Confirm Retreat';
+      confirmBtn.onclick=()=>{ retreatConfirming=false; retreatFromCombat(); };
+      body.appendChild(confirmBtn);
+      const cancelBtn=document.createElement('button');
+      cancelBtn.id='passBtn';
+      cancelBtn.textContent='Cancel';
+      cancelBtn.onclick=()=>{ retreatConfirming=false; render(); };
+      body.appendChild(cancelBtn);
+    } else {
+      const retreatBtn=document.createElement('button');
+      retreatBtn.id='cancelTargetBtn';
+      retreatBtn.style.display='block';
+      retreatBtn.textContent='⚑ Retreat (lose reward, one deployed mercenary is Shaken)';
+      retreatBtn.onclick=()=>{ retreatConfirming=true; render(); };
+      body.appendChild(retreatBtn);
+    }
+  }
+
+  if(S.stage==='over'){
+    const note=document.createElement('div');
+    note.className='rules-note';
+    note.textContent='Battle concluded.';
+    body.appendChild(note);
+    return;
+  }
+
+  if(S.stage==='deploy'){
+    renderDeployPanel(body);
+    return;
+  }
+
+  if(S.mode==='choose-target'){
+    const {actorId,kind}=S.pendingAction;
+    const actor=S.units[actorId];
+    const hint=document.createElement('div');
+    hint.id='targetHint';
+    hint.style.display='block';
+    hint.textContent = kind==='move'
+      ? `Select a zone for ${actor.name} to move to.`
+      : `Select a target for ${actor.name}'s ${S.pendingAction.weaponAction.label}.`;
+    body.appendChild(hint);
+
+    const cancel=document.createElement('button');
+    cancel.id='cancelTargetBtn';
+    cancel.style.display='block';
+    cancel.textContent='← Cancel';
+    cancel.onclick=()=>{S.mode='idle';S.pendingAction=null;render();};
+    body.appendChild(cancel);
+    return;
+  }
+
+  const actorId = S.order[S.ptr];
+  const turnBudget = Math.min(S.cp, MAX_CP_PER_ACTIVATION - S.spentThisTurn);
+
+  const pb=document.createElement('div');
+  pb.className='phase-banner';
+  pb.textContent = `${S.units[actorId].name}'s Activation — ${turnBudget} CP left this turn (of ${S.cp} in the round)`;
+  body.appendChild(pb);
+
+  const actor=S.units[actorId];
+
+  const weaponLine=document.createElement('div');
+  weaponLine.className='rules-note';
+  weaponLine.style.margin='0 0 8px';
+  weaponLine.innerHTML = `Weapon: <b style="color:var(--parchment);">${actor.weaponName || 'None equipped'}</b>`;
+  body.appendChild(weaponLine);
+
+  const statsToggle=document.createElement('div');
+  statsToggle.className='section-toggle';
+  statsToggle.style.marginBottom='10px';
+  statsToggle.innerHTML = `<span>Full Stats</span><span class="caret">${actionStatsExpanded?'▲':'▼'}</span>`;
+  statsToggle.addEventListener('click', ()=>{ actionStatsExpanded=!actionStatsExpanded; render(); });
+  body.appendChild(statsToggle);
+  if(actionStatsExpanded){
+    const statsBody=document.createElement('div');
+    statsBody.className='rules-note';
+    statsBody.style.margin='0 0 10px';
+    statsBody.textContent = `HP ${actor.hp}/${actor.maxHp} · PROW ${actor.physAtk} · ARC ${actor.magAtk} · GRD ${actor.physDef} · WARD ${actor.magDef} · SPD ${actor.spd}`;
+    body.appendChild(statsBody);
+  }
+
+  buildActionButton(body,'Move',1,`Move to an adjacent zone.`, turnBudget>=1, ()=>{
+    snapshot(); S.mode='choose-target'; S.pendingAction={actorId,kind:'move'}; render();
+  });
+
+  if(!actor.weaponType){
+    const note=document.createElement('div');
+    note.className='rules-note';
+    note.textContent = `${actor.name} has no weapon equipped — only Move and Defend are available. Equip a weapon back at Company Management.`;
+    body.appendChild(note);
+  } else {
+    const catalogEntry = WEAPON_CATALOG[actor.weaponCatalogId];
+    const masteryPct = Math.round((masteryMultiplier(actor)-1)*100);
+    if(masteryPct>0){
+      const masteryNote=document.createElement('div');
+      masteryNote.className='rules-note';
+      masteryNote.style.color='var(--brass-light)';
+      masteryNote.textContent = `Mastery Bonus: +${masteryPct}% effectiveness (Expertise ${actor.rawExpertiseTier})`;
+      body.appendChild(masteryNote);
+    }
+    const dmgType = WEAPON_TYPE_DMGTYPE[catalogEntry.type];
+    const basicAction = {label:'Basic Attack', cost:1, dmgMin:catalogEntry.basicDmgMin, dmgMax:catalogEntry.basicDmgMax, dmgType, range:catalogEntry.basicRange, aoe:false, desc:`Rolls ${catalogEntry.basicDmgMin}-${catalogEntry.basicDmgMax}.`};
+    buildWeaponActionButton(body, actor, basicAction, turnBudget);
+
+    const unlockedSkills = catalogEntry.skills.filter(s=>actor.expertiseTier>=s.tier);
+    unlockedSkills.forEach(skillEntry=>{
+      buildWeaponActionButton(body, actor, resolveSkillAction(skillEntry), turnBudget);
+    });
+
+    const lockedSkills = catalogEntry.skills.filter(s=>actor.expertiseTier<s.tier).sort((a,b)=>a.tier-b.tier);
+    if(lockedSkills.length>0){
+      const nextLocked = lockedSkills[0];
+      const note=document.createElement('div');
+      note.className='rules-note';
+      note.textContent = `${actor.weaponName}'s ${resolveSkillAction(nextLocked).label} needs Expertise ${nextLocked.tier} (currently ${actor.expertiseTier}).`;
+      body.appendChild(note);
+    } else if(catalogEntry.skills.length===0){
+      const note=document.createElement('div');
+      note.className='rules-note';
+      note.textContent = `${actor.weaponName} has no special techniques — Basic Attack only, regardless of Expertise.`;
+      body.appendChild(note);
+    }
+  }
+
+  buildActionButton(body,'Defend',1,'+4 Guard and Ward until your next activation.', turnBudget>=1, ()=>{
+    snapshot();
+    doDefend(actor);
+    finishActorAction(actor);
+  });
+
+  const endBtn=document.createElement('button');
+  endBtn.id='passBtn';
+  endBtn.textContent='End Turn';
+  endBtn.onclick=()=>{ snapshot(); log(`${actor.name} ends their activation.`); endActorTurn(); };
+  body.appendChild(endBtn);
+}
+
+function buildWeaponActionButton(body, actor, action, turnBudget){
+  const actorId = actor.id;
+  const isSelfZoneAoe = action.aoe && action.range===0;
+  const freeStrikeBlocked = action.freeStrike && actor.freeStrikeUsedThisTurn;
+  const hasTarget = action.heal
+    ? aliveMercs().some(m=>inRange(actor,m.zone,action.range))
+    : action.aoe
+      ? (isSelfZoneAoe
+          ? visibleAliveEnemies().some(e=>e.zone===actor.zone)
+          : Object.keys(ZONES).some(z=>z!==actor.zone && inRange(actor,z,action.range) && visibleAliveEnemies().some(e=>e.zone===z)))
+      : visibleAliveEnemies().some(e=>inRange(actor,e.zone,action.range));
+
+  buildActionButton(body, action.label, action.cost, action.desc,
+    turnBudget>=action.cost && hasTarget && !freeStrikeBlocked, ()=>{
+    snapshot();
+    if(isSelfZoneAoe){
+      const targets = visibleAliveEnemies().filter(e=>e.zone===actor.zone);
+      doAttack(actor,targets,action);
+      finishActorAction(actor);
+    } else {
+      S.mode='choose-target'; S.pendingAction={actorId,kind:'attack',weaponAction:action}; render();
+    }
+  });
+}
+
+function renderDeployPanel(body){
+  const isPreBattle = S.round===1;
+  const label = isPreBattle
+    ? 'Pre-Battle Deployment'
+    : `Deployment — After Round ${S.round-1}`;
+
+  const pb=document.createElement('div');
+  pb.className='phase-banner';
+  pb.textContent = `${label}: ${S.cp} CP available (shared with Round ${S.round}), ${aliveMercs().length}/${ACTIVE_CAP} active`;
+  body.appendChild(pb);
+
+  const note=document.createElement('div');
+  note.className='rules-note';
+  note.style.margin='0 0 10px';
+  note.textContent = 'Deploy from your hand below (see Company panel), or proceed straight to combat. Deployed mercenaries join the field at Camp and are ready to act as soon as this round\'s combat begins.';
+  body.appendChild(note);
+
+  const beginBtn=document.createElement('button');
+  beginBtn.className='action-btn';
+  beginBtn.style.justifyContent='center';
+  beginBtn.innerHTML=`<span>Begin Round ${S.round} Combat →</span>`;
+  beginBtn.onclick=()=>{ snapshot(); beginCombatStage(); };
+  body.appendChild(beginBtn);
+}
+
+function buildActionButton(container,label,cost,desc,enabled,onClick){
+  const btn=document.createElement('button');
+  btn.className='action-btn';
+  btn.disabled=!enabled;
+  btn.innerHTML=`<span>${label}<small>${desc}</small></span><span class="cost">${cost} CP</span>`;
+  if(enabled) btn.onclick=onClick;
+  container.appendChild(btn);
+}
+
+function renderUndoButton(container){
+  if(HISTORY.length===0) return;
+  const btn=document.createElement('button');
+  btn.id='undoBtn';
+  btn.textContent=`↶ Undo Last Action (${HISTORY.length} available)`;
+  btn.onclick=()=>{ undo(); };
+  container.appendChild(btn);
+}
+
+/* ============================== CAMPAIGN SCREENS ============================== */
+
+const ALL_SCREENS = ['recruitSelect','company','resolution','battle','runMap','reward','merchant','rest','event','runEnd'];
+
+function renderScreen(){
+  ALL_SCREENS.forEach(s=>{
+    const el = document.getElementById(s+'Screen');
+    if(el) el.style.display = CAMPAIGN.screen===s ? '' : 'none';
+  });
+  document.getElementById('roundStatWrap').style.display = CAMPAIGN.screen==='battle' ? '' : 'none';
+  document.getElementById('cpStatWrap').style.display = CAMPAIGN.screen==='battle' ? '' : 'none';
+  renderHeader();
+  renderLadder();
+  if(CAMPAIGN.screen==='recruitSelect') renderRecruitSelectScreen();
+  if(CAMPAIGN.screen==='company') renderCompanyManagement();
+  if(CAMPAIGN.screen==='resolution') renderResolution();
+  if(CAMPAIGN.screen==='runMap') renderRunMap();
+  if(CAMPAIGN.screen==='reward') renderRewardScreen();
+  if(CAMPAIGN.screen==='merchant') renderMerchantScreen();
+  if(CAMPAIGN.screen==='rest') renderRestScreen();
+  if(CAMPAIGN.screen==='event') renderEventScreen();
+  if(CAMPAIGN.screen==='runEnd') renderRunEndScreen();
+}
+
+let expandedMercCards = new Set();
+let expandedWeaponCards = new Set();
+let selectedDifficulty = 'easy';
+let rosterSectionOpen = true;
+let inventorySectionOpen = true;
+let actionStatsExpanded = false;
+let retreatConfirming = false;
+const WEAPON_ORDER = ['spear','sword','bow','axe','hammer','dagger','wand','staff','tome','totem'];
+const WEAPON_TYPE_DMGTYPE = {spear:'physical',sword:'physical',bow:'physical',axe:'physical',hammer:'physical',dagger:'physical',wand:'magical',staff:'magical',tome:'magical',totem:'magical'};
+
+function starString(tier){
+  return '★'.repeat(Math.min(tier,5)) + '☆'.repeat(Math.max(0,5-tier));
+}
+
+// Single source of truth for equip changes: clears the target merc's previous item (no dual-wield)
+// and clears the item's previous holder, so an item/merc can never end up in an inconsistent state.
+function equipItemToMerc(itemId, mercId){
+  const item = CAMPAIGN.inventory.find(i=>i.id===itemId);
+  if(!item) return;
+  if(mercId){
+    CAMPAIGN.inventory.forEach(i=>{ if(i.equippedBy===mercId && i.id!==itemId) i.equippedBy=null; });
+  }
+  item.equippedBy = mercId || null;
+}
+
+function renderCompanyManagement(){
+  const body=document.getElementById('companyMgmtBody');
+  body.innerHTML='';
+
+  const availCount = availableMercIds().length;
+  const deadCount = MERC_IDS.filter(id=>CAMPAIGN.roster[id].injury.status==='dead').length;
+  const injuredCount = MERC_IDS.filter(id=>CAMPAIGN.roster[id].injury.status==='injured').length;
+  const intro=document.createElement('div');
+  intro.className='rules-note';
+  intro.style.margin='0 0 12px';
+  intro.textContent = `${availCount}/${MERC_IDS.length} available${injuredCount>0?`, ${injuredCount} injured`:''}${deadCount>0?`, ${deadCount} deceased`:''}. Tap a card to see full stats, traits, weapon expertise, and to equip/unequip. Up to 3 deploy at once, at most 5 total across the whole battle.`;
+  body.appendChild(intro);
+
+  body.appendChild(renderCollapsibleSection(
+    `Company Roster (${MERC_IDS.length})`,
+    'rosterSection',
+    () => { rosterSectionOpen = !rosterSectionOpen; renderCompanyManagement(); },
+    rosterSectionOpen,
+    wrap => { MERC_IDS.forEach(id=>{ wrap.appendChild(renderMercCard(id)); }); }
+  ));
+
+  body.appendChild(renderCollapsibleSection(
+    `Inventory (${CAMPAIGN.inventory.length})`,
+    'inventorySection',
+    () => { inventorySectionOpen = !inventorySectionOpen; renderCompanyManagement(); },
+    inventorySectionOpen,
+    wrap => { CAMPAIGN.inventory.forEach(item=>{ wrap.appendChild(renderWeaponCard(item.id)); }); }
+  ));
+}
+
+// Generic collapsible top-level section (used for Company Roster and Inventory).
+function renderCollapsibleSection(title, key, onToggle, isOpen, fillFn){
+  const wrapAll=document.createElement('div');
+  wrapAll.className='section-body-wrap';
+
+  const toggle=document.createElement('div');
+  toggle.className='section-toggle';
+  toggle.innerHTML = `<span>${title}</span><span class="caret">${isOpen?'▲':'▼'}</span>`;
+  toggle.addEventListener('click', onToggle);
+  wrapAll.appendChild(toggle);
+
+  if(isOpen){
+    const inner=document.createElement('div');
+    fillFn(inner);
+    wrapAll.appendChild(inner);
+  }
+
+  return wrapAll;
+}
+
+function renderMercCard(mercId){
+  const merc=CAMPAIGN.roster[mercId];
+  const stats=currentStats(merc);
+  const item=equippedItemFor(mercId);
+  const isExpanded=expandedMercCards.has(mercId);
+
+  const card=document.createElement('div');
+  card.className='merc-card'+(merc.injury.status==='injured'?' injured':'')+(merc.injury.status==='dead'?' dead-merc':'');
+
+  const header=document.createElement('div');
+  header.className='merc-card-header';
+  const summary = merc.injury.status==='dead' ? injuryLabel(merc)
+    : merc.injury.status==='injured' ? `${injuryLabel(merc)} — ${merc.injury.battlesRemaining} expedition(s) left`
+    : `Lv${merc.level} · ${computeArchetype(stats,item)} · ${item? item.name : 'Unequipped'}`;
+  header.innerHTML=`
+    <span class="mc-name">${merc.name}</span>
+    <span class="mc-summary">${summary}</span>
+    <span class="mc-caret">${isExpanded?'▲':'▼'}</span>
+  `;
+  header.addEventListener('click',()=>{
+    if(isExpanded) expandedMercCards.delete(mercId); else expandedMercCards.add(mercId);
+    renderCompanyManagement();
+  });
+  card.appendChild(header);
+
+  if(isExpanded){
+    const bodyEl=document.createElement('div');
+    bodyEl.className='merc-card-body';
+
+    const xpNeeded = xpNeededForLevel(merc.level+1);
+    const xpPct = Math.min(100,Math.round(100*merc.xp/xpNeeded));
+    const xpRow=document.createElement('div');
+    xpRow.className='mc-stats-row';
+    xpRow.innerHTML = `Expeditions ${merc.xp}/${xpNeeded}<span class="xpbar"><span class="xpfill" style="width:${xpPct}%"></span></span>`;
+    bodyEl.appendChild(xpRow);
+
+    const statusRow=document.createElement('div');
+    statusRow.className='mc-stats-row';
+    statusRow.style.marginTop='4px';
+    statusRow.textContent = merc.injury.status==='dead'
+      ? `${injuryLabel(merc)} — permanently lost. Their equipment has been returned to the company.`
+      : merc.injury.status==='injured'
+      ? `${injuryLabel(merc)} — unavailable for ${merc.injury.battlesRemaining} more expedition(s)`
+      : `HP ${stats.hp} · PROW ${stats.physAtk} · ARC ${stats.magAtk} · GRD ${stats.physDef} · WARD ${stats.magDef} · SPD ${stats.spd}`;
+    bodyEl.appendChild(statusRow);
+
+    const traitLabel=document.createElement('div');
+    traitLabel.className='mc-section-label';
+    traitLabel.textContent='Traits';
+    bodyEl.appendChild(traitLabel);
+    merc.traits.forEach(t=>{
+      const tr=document.createElement('div');
+      tr.className='mc-trait';
+      tr.textContent = `${TRAITS[t.key].name} — ${TRAITS[t.key].describe(t.tier)}`;
+      bodyEl.appendChild(tr);
+    });
+
+    const expLabel=document.createElement('div');
+    expLabel.className='mc-section-label';
+    expLabel.textContent='Weapon Expertise';
+    bodyEl.appendChild(expLabel);
+    const expGrid=document.createElement('div');
+    expGrid.className='exp-grid';
+    // Only show weapons with proficiency (1+ stars) so this doesn't get overwhelming as more weapons
+    // are added — except the currently-equipped weapon, which always shows even at 0 stars so it's
+    // never a mystery which weapon a merc is holding and how good they are with it.
+    const shownWeapons = WEAPON_ORDER.filter(wt => (merc.expertise[wt]||0)>=1 || (item && item.type===wt));
+    if(shownWeapons.length===0){
+      const none=document.createElement('div');
+      none.className='mc-trait';
+      none.textContent='No weapon proficiency yet.';
+      expGrid.appendChild(none);
+    }
+    shownWeapons.forEach(wt=>{
+      const tier=merc.expertise[wt]||0;
+      const isEquippedType = item && item.type===wt;
+      const row=document.createElement('div');
+      row.className='exp-row'+(isEquippedType?' exp-equipped':'');
+      row.innerHTML = `<span class="exp-label">${wt}</span><span class="exp-stars">${starString(tier)}</span>`;
+      expGrid.appendChild(row);
+    });
+    bodyEl.appendChild(expGrid);
+
+    if(item){
+      const equippedTier = expertiseTier(merc, item.type);
+      const bonusPct = Math.round(equippedTier * MASTERY_EFFECTIVENESS_PER_TIER * 100);
+      const masteryNote=document.createElement('div');
+      masteryNote.className='mc-stats-row';
+      masteryNote.textContent = `Mastery Bonus with ${item.name}: +${bonusPct}% effectiveness (Expertise ${equippedTier})`;
+      bodyEl.appendChild(masteryNote);
+    }
+
+    const equipLabel=document.createElement('div');
+    equipLabel.className='mc-section-label';
+    equipLabel.textContent='Equipped Weapon';
+    bodyEl.appendChild(equipLabel);
+    const equipSelect=document.createElement('select');
+    equipSelect.className='mc-equip-select';
+    if(merc.injury.status!=='available'){
+      equipSelect.disabled=true;
+      const opt=document.createElement('option');
+      opt.textContent = `${injuryLabel(merc)} — cannot be equipped`;
+      equipSelect.appendChild(opt);
+    } else {
+      const noneOpt=document.createElement('option');
+      noneOpt.value=''; noneOpt.textContent='— Unequipped —';
+      if(!item) noneOpt.selected=true;
+      equipSelect.appendChild(noneOpt);
+      CAMPAIGN.inventory.forEach(inv=>{
+        const opt=document.createElement('option');
+        opt.value=inv.id;
+        const tier=expertiseTier(merc,inv.type);
+        const holderNote = (inv.equippedBy && inv.equippedBy!==mercId) ? ` — takes from ${CAMPAIGN.roster[inv.equippedBy].name}` : '';
+        const catalogEntry = WEAPON_CATALOG[inv.catalogId];
+        const capNote = catalogEntry && catalogEntry.skills.length===0 ? ' [no special techniques]' : '';
+        opt.textContent=`${inv.name} (Expertise ${tier})${capNote}${holderNote}`;
+        if(inv.equippedBy===mercId) opt.selected=true;
+        equipSelect.appendChild(opt);
+      });
+      equipSelect.addEventListener('change',()=>{
+        if(equipSelect.value===''){
+          if(item) equipItemToMerc(item.id, null);
+        } else {
+          equipItemToMerc(equipSelect.value, mercId);
+        }
+        renderCompanyManagement();
+      });
+    }
+    bodyEl.appendChild(equipSelect);
+
+    if(item && WEAPON_CATALOG[item.catalogId] && WEAPON_CATALOG[item.catalogId].skills.length===0){
+      const capWarn=document.createElement('div');
+      capWarn.className='mc-trait';
+      capWarn.style.color='var(--parchment-dim)';
+      capWarn.style.fontStyle='italic';
+      capWarn.style.marginTop='6px';
+      capWarn.textContent = `${item.name} has no special techniques — Basic Attack only, regardless of ${merc.name}'s actual Expertise.`;
+      bodyEl.appendChild(capWarn);
+    }
+
+    card.appendChild(bodyEl);
+  }
+
+  return card;
+}
+
+function renderWeaponCard(itemId){
+  const item = CAMPAIGN.inventory.find(i=>i.id===itemId);
+  const isExpanded = expandedWeaponCards.has(itemId);
+  const holder = item.equippedBy? CAMPAIGN.roster[item.equippedBy].name : 'Unequipped';
+  const catalogEntry = WEAPON_CATALOG[item.catalogId];
+
+  const card=document.createElement('div');
+  card.className='merc-card';
+
+  const header=document.createElement('div');
+  header.className='merc-card-header';
+  header.innerHTML=`
+    <span class="mc-name">${item.name}</span>
+    <span class="mc-summary">${item.type} · ${catalogEntry.basicDmgMin}-${catalogEntry.basicDmgMax} dmg · ${holder}<br><small>${isExpanded?'Weapon skills shown below':'Tap to inspect weapon skills'}</small></span>
+    <span class="mc-caret">${isExpanded?'▲':'▼'}</span>
+  `;
+  header.addEventListener('click',()=>{
+    if(isExpanded) expandedWeaponCards.delete(itemId); else expandedWeaponCards.add(itemId);
+    renderCompanyManagement();
+  });
+  card.appendChild(header);
+
+  if(isExpanded){
+    const bodyEl=document.createElement('div');
+    bodyEl.className='merc-card-body';
+
+    const profile=document.createElement('div');
+    profile.className='mc-stats-row';
+    profile.style.marginBottom='8px';
+    profile.innerHTML=`<b>Weapon Profile</b> · ${catalogEntry.basicDmgMin}-${catalogEntry.basicDmgMax} damage · ${catalogEntry.skills.length} special skill${catalogEntry.skills.length===1?'':'s'}`;
+    bodyEl.appendChild(profile);
+
+    const label=document.createElement('div');
+    label.className='mc-section-label';
+    label.textContent='Weapon Skills';
+    bodyEl.appendChild(label);
+
+    const basicAction = {label:'Basic Attack', cost:1, dmgMin:catalogEntry.basicDmgMin, dmgMax:catalogEntry.basicDmgMax, desc:`Rolls ${catalogEntry.basicDmgMin}-${catalogEntry.basicDmgMax}.`};
+    const actionsToShow = [{tier:'Any Expertise', action:basicAction}];
+    catalogEntry.skills.forEach(skillEntry=>{
+      actionsToShow.push({tier:`Expertise ${skillEntry.tier}+`, action:resolveSkillAction(skillEntry)});
+    });
+
+    actionsToShow.forEach(({tier,action})=>{
+      const row=document.createElement('div');
+      row.className='mc-trait';
+      row.innerHTML = `<b>${action.label}</b> — ${tier} · ${action.cost} CP · ${action.dmgMin}-${action.dmgMax} dmg<br><span style="color:var(--parchment-dim);font-size:10.5px;">${action.desc}</span>`;
+      bodyEl.appendChild(row);
+    });
+
+    if(catalogEntry.skills.length===0){
+      const note=document.createElement('div');
+      note.className='mc-stats-row';
+      note.textContent = 'No special techniques — Basic Attack only, regardless of Expertise.';
+      bodyEl.appendChild(note);
+    }
+
+    const equipLabel=document.createElement('div');
+    equipLabel.className='mc-section-label';
+    equipLabel.textContent='Equip To';
+    bodyEl.appendChild(equipLabel);
+
+    const select=document.createElement('select');
+    select.className='mc-equip-select';
+    const noneOpt=document.createElement('option');
+    noneOpt.value=''; noneOpt.textContent='— Unequipped —';
+    if(!item.equippedBy) noneOpt.selected=true;
+    select.appendChild(noneOpt);
+    MERC_IDS.forEach(id=>{
+      const merc=CAMPAIGN.roster[id];
+      if(merc.injury.status!=='available') return;
+      const opt=document.createElement('option');
+      opt.value=id;
+      const tier=expertiseTier(merc,item.type);
+      opt.textContent=`${merc.name} (Expertise ${tier})`;
+      if(item.equippedBy===id) opt.selected=true;
+      select.appendChild(opt);
+    });
+    select.addEventListener('change',()=>{ equipItemToMerc(item.id, select.value||null); renderCompanyManagement(); });
+    bodyEl.appendChild(select);
+
+    card.appendChild(bodyEl);
+  }
+
+  return card;
+}
+
+/* ============================== POST-BATTLE RESOLUTION ============================== */
+
+// Expertise grows with use, not at creation: 1 expedition for the 1st star, then 2 more for the
+// 2nd, 3 more for the 3rd, 4 more for the 4th, 5 more for the 5th — cumulative thresholds are
+// triangular numbers (1, 3, 6, 10, 15), matching the same escalating-cost shape used for leveling.
+// Tiers 2/3 still unlock the weapon's skill/skill2 actions as before; tiers 4-5 exist purely as
+// continued mastery-bonus growth (masteryMultiplier already scales with raw, uncapped tier).
+const EXPERTISE_STAR_THRESHOLDS = [0,1,3,6,10,15];
+
+function resolveBattleEnd(won){
+  const result = { won, xpAwarded:{}, leveledUp:{}, injuries:{}, pendingLevelChoices:[], expertiseGained:{} };
+
+  if(won){
+    S.everDeployed.forEach(id=>{
+      const unit = S.units[id];
+      if(unit && unit.alive){
+        const merc = CAMPAIGN.roster[id];
+        merc.xp += XP_PER_BATTLE;
+        result.xpAwarded[id]=XP_PER_BATTLE;
+        // check for level-up thresholds crossed (no cap — keep leveling as long as xp allows,
+        // in case several thresholds were crossed at once). +2 HP is now automatic per level,
+        // separate from the player's choice (which no longer includes HP as an option).
+        while(merc.xp >= xpNeededForLevel(merc.level+1)){
+          merc.level++;
+          merc.statBonus.hp = (merc.statBonus.hp||0) + 2;
+          result.leveledUp[id]=merc.level;
+          result.pendingLevelChoices.push(id);
+        }
+        // weapon expertise grows from actually fighting with that weapon this battle
+        if(unit.weaponType){
+          merc.expertiseProgress = merc.expertiseProgress || {spear:0,sword:0,bow:0,axe:0,hammer:0,dagger:0,wand:0,staff:0,tome:0,totem:0};
+          const qsTier = traitTier(merc,'quickstudy');
+          const progressGain = 1 + (qsTier!==null ? 1+qsTier : 0);
+          merc.expertiseProgress[unit.weaponType] = (merc.expertiseProgress[unit.weaponType]||0) + progressGain;
+          const currentStar = merc.expertise[unit.weaponType]||0;
+          if(currentStar<5 && merc.expertiseProgress[unit.weaponType] >= EXPERTISE_STAR_THRESHOLDS[currentStar+1]){
+            merc.expertise[unit.weaponType] = currentStar+1;
+            result.expertiseGained[id] = {type:unit.weaponType, newTier:currentStar+1};
+          }
+        }
+      }
+    });
+  }
+
+  // Downed-outcome rolls for anyone defeated this battle: 25% each for miss 1/2/3 expeditions, or death.
+  S.defeated.forEach(id=>{
+    const merc = CAMPAIGN.roster[id];
+    const outcome = rollDownedOutcome();
+    if(outcome.status==='dead'){
+      merc.injury = {status:'dead', battlesRemaining:0, severity:'dead'};
+      const item = equippedItemFor(id);
+      if(item) item.equippedBy = null; // equipment survives, returns to the inventory pool
+    } else {
+      merc.injury = outcome;
+    }
+    result.injuries[id] = {status:merc.injury.status, severity:merc.injury.severity, battlesRemaining:merc.injury.battlesRemaining};
+  });
+
+  CAMPAIGN.lastBattleResult = result;
+  CAMPAIGN.screen='resolution';
+  renderScreen();
+}
+
+function renderResolution(){
+  const result = CAMPAIGN.lastBattleResult;
+  const titleEl=document.getElementById('resolutionTitle');
+  titleEl.textContent = result.won? `Battle ${CAMPAIGN.battleNumber} — Victory` : `Battle ${CAMPAIGN.battleNumber} — Defeat`;
+
+  const body=document.getElementById('resolutionBody');
+  body.innerHTML='';
+
+  if(result.pendingLevelChoices.length>0){
+    const mercId = result.pendingLevelChoices[0];
+    renderLevelChoice(body, mercId, result);
+    return;
+  }
+
+  const summary=document.createElement('div');
+  summary.className='rules-note';
+  summary.style.margin='0 0 12px';
+  summary.textContent = result.won
+    ? 'All hostiles eliminated. The company holds the field.'
+    : 'The company was wiped out and no reinforcements remained. The expedition ends here.';
+  body.appendChild(summary);
+
+  Object.keys(result.xpAwarded).forEach(id=>{
+    const row=document.createElement('div');
+    row.className='resolution-row';
+    const lvl = result.leveledUp[id];
+    const gain = result.expertiseGained[id];
+    const gainText = gain ? ` — ${gain.type.charAt(0).toUpperCase()+gain.type.slice(1)} expertise reached ${starString(gain.newTier)}!` : '';
+    row.innerHTML = `<span>${CAMPAIGN.roster[id].name}</span><span>+1 Expedition${lvl? ` — reached Level ${lvl}!`:''}${gainText}</span>`;
+    body.appendChild(row);
+  });
+
+  Object.keys(result.injuries).forEach(id=>{
+    const row=document.createElement('div');
+    row.className='resolution-row';
+    const outcome = result.injuries[id];
+    const term = INJURY_TERMS[outcome.severity] || 'Injured';
+    let text;
+    if(outcome.status==='dead'){
+      row.style.color='var(--warn)';
+      text = `${term} — lost permanently. Equipment returned to the company.`;
+    } else {
+      const battles = outcome.battlesRemaining;
+      text = `${term} — out for ${battles} expedition${battles>1?'s':''}`;
+    }
+    row.innerHTML = `<span>${CAMPAIGN.roster[id].name}</span><span>${text}</span>`;
+    body.appendChild(row);
+  });
+
+  const continueBtn=document.createElement('button');
+  continueBtn.id='beginExpeditionBtn';
+  continueBtn.textContent='Continue to Company Management →';
+  continueBtn.onclick=()=>{ finishResolution(); };
+  body.appendChild(continueBtn);
+}
+
+function renderLevelChoice(body, mercId, result){
+  const merc = CAMPAIGN.roster[mercId];
+  const heading=document.createElement('div');
+  heading.className='phase-banner';
+  heading.textContent = `${merc.name} reached Level ${merc.level}! (+2 HP automatically.) Choose an improvement.`;
+  body.appendChild(heading);
+
+  const current=currentStats(merc);
+  const statsLine=document.createElement('div');
+  statsLine.className='rules-note';
+  statsLine.style.margin='0 0 10px';
+  statsLine.innerHTML=`<b>Current Stats</b><br>HP ${current.hp} · PROW ${current.physAtk} · ARC ${current.magAtk} · GRD ${current.physDef} · WARD ${current.magDef} · SPD ${current.spd}`;
+  body.appendChild(statsLine);
+
+  const statBtn=document.createElement('button');
+  statBtn.className='level-choice-btn';
+  statBtn.innerHTML = `Raise a base stat<small>+1 Prowess, +1 Arcana, +1 Guard, +1 Ward, or +1 Speed</small>`;
+  statBtn.onclick=()=>{ showStatChoice(body, mercId, result); };
+  body.appendChild(statBtn);
+
+  const currentTrait = merc.traits[0];
+  const improveBtn=document.createElement('button');
+  improveBtn.className='level-choice-btn';
+  improveBtn.innerHTML = `Improve ${TRAITS[currentTrait.key].name}<small>Currently: ${TRAITS[currentTrait.key].describe(currentTrait.tier)} → becomes ${TRAITS[currentTrait.key].describe(currentTrait.tier+1)}</small>`;
+  improveBtn.onclick=()=>{
+    currentTrait.tier++;
+    result.pendingLevelChoices.shift();
+    renderResolution();
+  };
+  body.appendChild(improveBtn);
+
+  const available = TRAIT_KEYS.filter(k=>!merc.traits.some(t=>t.key===k));
+  if(available.length>0){
+    const newKey = available[Math.floor(Math.random()*available.length)];
+    const newBtn=document.createElement('button');
+    newBtn.className='level-choice-btn';
+    newBtn.innerHTML = `Gain a new trait: ${TRAITS[newKey].name}<small>${TRAITS[newKey].describe(0)}</small>`;
+    newBtn.onclick=()=>{
+      merc.traits.push({key:newKey, tier:0});
+      result.pendingLevelChoices.shift();
+      renderResolution();
+    };
+    body.appendChild(newBtn);
+  }
+}
+
+function showStatChoice(body, mercId, result){
+  const merc = CAMPAIGN.roster[mercId];
+  body.innerHTML='';
+  const heading=document.createElement('div');
+  heading.className='phase-banner';
+  heading.textContent = `${merc.name} — choose which stat to raise`;
+  body.appendChild(heading);
+
+  const current=currentStats(merc);
+  const currentLine=document.createElement('div');
+  currentLine.className='rules-note';
+  currentLine.style.margin='0 0 10px';
+  currentLine.innerHTML=`<b>Current Stats</b><br>HP ${current.hp} · PROW ${current.physAtk} · ARC ${current.magAtk} · GRD ${current.physDef} · WARD ${current.magDef} · SPD ${current.spd}`;
+  body.appendChild(currentLine);
+
+  const options = [
+    {key:'physAtk', label:'Prowess', current:current.physAtk},
+    {key:'magAtk', label:'Arcana', current:current.magAtk},
+    {key:'physDef', label:'Guard', current:current.physDef},
+    {key:'magDef', label:'Ward', current:current.magDef},
+    {key:'spd', label:'Speed', current:current.spd},
+  ];
+  options.forEach(opt=>{
+    const btn=document.createElement('button');
+    btn.className='level-choice-btn';
+    btn.innerHTML=`${opt.label}: <b>${opt.current} → ${opt.current+1}</b><small>Raise ${opt.label} by 1</small>`;
+    btn.onclick=()=>{
+      merc.statBonus[opt.key] = (merc.statBonus[opt.key]||0) + (opt.key==='hp'?2:1);
+      result.pendingLevelChoices.shift();
+      renderResolution();
+    };
+    body.appendChild(btn);
+  });
+}
+
+function finishResolution(){
+  const won = CAMPAIGN.lastBattleResult ? CAMPAIGN.lastBattleResult.won : null;
+  // tick injury countdowns for everyone currently injured, whether or not they fought this battle
+  MERC_IDS.forEach(id=>{
+    const merc=CAMPAIGN.roster[id];
+    if(merc.injury.status==='injured'){
+      merc.injury.battlesRemaining--;
+      if(merc.injury.battlesRemaining<=0){
+        merc.injury={status:'available', battlesRemaining:0};
+      }
+    }
+  });
+  CAMPAIGN.battleNumber++;
+  CAMPAIGN.lastBattleResult=null;
+  if(CAMPAIGN.run){
+    afterCombatNodeResolved(won);
+  } else {
+    CAMPAIGN.screen='company';
+    renderScreen();
+  }
+}
+
+/* ============================== PROTOTYPE D: RUN FLOW ============================== */
+
+function markNodeCompleted(nodeId){
+  if(CAMPAIGN.run && !CAMPAIGN.run.completedNodeIds.includes(nodeId)){
+    CAMPAIGN.run.completedNodeIds.push(nodeId);
+  }
+}
+
+// Shared failure check: fewer than 3 available mercenaries ends the run immediately.
+// Returns true if the run ended here (caller should stop, not route anywhere else).
+function checkRunAttrition(){
+  if(availableMercIds().length < 3){
+    endRun(false, 'attrition');
+    return true;
+  }
+  return false;
+}
+
+function afterCombatNodeResolved(won){
+  const node = getCurrentRunNode();
+  if(node) markNodeCompleted(node.id);
+
+  if(node && node.type==='boss'){
+    if(won){ endRun(true, 'victory'); return; }
+    endRun(false, 'defeat');
+    return;
+  }
+
+  if(checkRunAttrition()) return;
+
+  if(!won){
+    log('The company withdraws without a reward.');
+    CAMPAIGN.screen='runMap';
+    renderScreen();
+    return;
+  }
+
+  CAMPAIGN.pendingReward = generateRewardChoices(node ? node.type : 'combat');
+  CAMPAIGN.screen='reward';
+  renderScreen();
+}
+
+function endRun(won, reason){
+  CAMPAIGN.lastRunResult = {
+    won, reason,
+    gold: CAMPAIGN.gold,
+    survivors: availableMercIds().length,
+    nodesCompleted: CAMPAIGN.run ? CAMPAIGN.run.completedNodeIds.length : 0,
+  };
+  CAMPAIGN.run = null;
+  CAMPAIGN.screen='runEnd';
+  renderScreen();
+}
+
+function beginNewRun(){
+  if(availableMercIds().length < 3){
+    log('Not enough available mercenaries to begin a run (need at least 3).');
+    return;
+  }
+  CAMPAIGN.run = generateRunMap();
+  CAMPAIGN.runNumber++;
+  CAMPAIGN.screen='runMap';
+  renderScreen();
+}
+
+// Company Management is reachable mid-run (from the Map or the Merchant) without disturbing
+// run progress — CAMPAIGN.run itself is never touched here, only CAMPAIGN.screen. We remember
+// which screen we came from so "Return" doesn't skip past an in-progress Merchant visit.
+function viewCompanyMidRun(){
+  CAMPAIGN.returnScreen = CAMPAIGN.screen;
+  CAMPAIGN.screen='company';
+  renderScreen();
+}
+
+function handleHeaderBeginBtnClick(){
+  if(CAMPAIGN.run){
+    CAMPAIGN.screen = CAMPAIGN.returnScreen || 'runMap';
+    CAMPAIGN.returnScreen = null;
+    renderScreen();
+  }
+  else { beginNewRun(); }
+}
+
+function selectRunNode(nodeId){
+  const run=CAMPAIGN.run;
+  const nextLayerIndex = run.currentLayer+1;
+  const node = nextLayerIndex<run.layers.length ? run.layers[nextLayerIndex].find(n=>n.id===nodeId) : run.bossNode;
+  if(!node) return;
+  run.currentLayer = nextLayerIndex;
+  run.currentNodeId = node.id;
+  enterRunNode(node);
+}
+
+function enterRunNode(node){
+  if(node.type==='combat') startBattle('normal');
+  else if(node.type==='elite') startBattle('hard');
+  else if(node.type==='boss') startBattle(null, true);
+  else if(node.type==='event') enterEventNode();
+  else if(node.type==='merchant') enterMerchantNode();
+  else if(node.type==='rest') enterRestNode();
+}
+
+function retreatFromCombat(){
+  if(!CAMPAIGN.run) return;
+  const deployedAlive = aliveMercs();
+  if(deployedAlive.length>0){
+    const victim = deployedAlive[Math.floor(Math.random()*deployedAlive.length)];
+    const merc = CAMPAIGN.roster[victim.id];
+    merc.injury = {status:'injured', battlesRemaining:1, severity:1};
+  }
+  const node = getCurrentRunNode();
+  if(node) markNodeCompleted(node.id);
+  S = null;
+  if(checkRunAttrition()) return;
+  CAMPAIGN.screen='runMap';
+  renderScreen();
+}
+
+function enterEventNode(){
+  const run = CAMPAIGN.run;
+  run.usedEventIds = run.usedEventIds || [];
+  let pool = EVENTS.filter(e=>!run.usedEventIds.includes(e.id));
+  if(pool.length===0) pool = EVENTS;
+  const event = pool[Math.floor(Math.random()*pool.length)];
+  run.usedEventIds.push(event.id);
+  run.currentEvent = event;
+  CAMPAIGN.screen='event';
+  renderScreen();
+}
+
+function resolveEventChoice(choiceIdx){
+  const event = CAMPAIGN.run.currentEvent;
+  const choice = event.choices[choiceIdx];
+  const eff = choice.effect || {};
+  const log_lines=[];
+  if(eff.gold){
+    CAMPAIGN.gold = Math.max(0, CAMPAIGN.gold + eff.gold);
+    log_lines.push(`${eff.gold>0?'+':''}${eff.gold} Gold`);
+  }
+  if(eff.healRandom){
+    const injured = MERC_IDS.filter(id=>CAMPAIGN.roster[id].injury.status==='injured');
+    if(injured.length>0){
+      const target = injured[Math.floor(Math.random()*injured.length)];
+      const merc = CAMPAIGN.roster[target];
+      merc.injury.battlesRemaining = Math.max(0, merc.injury.battlesRemaining-1);
+      if(merc.injury.battlesRemaining<=0) merc.injury={status:'available',battlesRemaining:0};
+      log_lines.push(`${merc.name} recovers somewhat.`);
+    } else {
+      CAMPAIGN.gold += 15;
+      log_lines.push('No one was injured — +15 Gold instead.');
+    }
+  }
+  if(eff.item){
+    const randomType = WEAPON_ORDER[Math.floor(Math.random()*WEAPON_ORDER.length)];
+    const catalogId = generateWeapon(randomType, rollRarity('combat'));
+    const template = WEAPON_CATALOG[catalogId];
+    CAMPAIGN.inventory.push({id:`evt_${Date.now()}_${Math.floor(Math.random()*9999)}`, type:template.type, name:template.name, catalogId, equippedBy:null});
+    log_lines.push(`Gained ${template.name} (${template.rarity}).`);
+  }
+  if(eff.injureChance && Math.random()<eff.injureChance){
+    const avail = availableMercIds();
+    if(avail.length>0){
+      const victim = avail[Math.floor(Math.random()*avail.length)];
+      CAMPAIGN.roster[victim].injury = {status:'injured', battlesRemaining:1, severity:1};
+      log_lines.push(`${CAMPAIGN.roster[victim].name} was hurt in the process.`);
+    }
+  }
+  CAMPAIGN.run.lastEventOutcome = log_lines.join(' ');
+  CAMPAIGN.run.currentEvent = null;
+  const node = getCurrentRunNode();
+  if(node) markNodeCompleted(node.id);
+  if(checkRunAttrition()) return;
+  CAMPAIGN.screen='event';
+  renderScreen(); // show outcome text before returning to map (handled in renderEventScreen)
+}
+
+function enterMerchantNode(){
+  const run = CAMPAIGN.run;
+  const stock=[];
+  const typePool = shuffle(WEAPON_ORDER.slice());
+  for(let i=0;i<MERCHANT_STOCK_SIZE && i<typePool.length;i++){
+    const catalogId = generateWeapon(typePool[i], rollRarity('merchant'));
+    const w = WEAPON_CATALOG[catalogId];
+    stock.push({catalogId, type:w.type, name:w.name, rarity:w.rarity, price: weaponPrice(catalogId)});
+  }
+  run.merchantStock = stock;
+  CAMPAIGN.screen='merchant';
+  renderScreen();
+}
+
+function buyMerchantItem(idx){
+  const item = CAMPAIGN.run.merchantStock[idx];
+  if(!item || CAMPAIGN.gold < item.price) return;
+  CAMPAIGN.gold -= item.price;
+  CAMPAIGN.inventory.push({id:`buy_${Date.now()}_${idx}`, type:item.type, name:item.name, catalogId:item.catalogId, equippedBy:null});
+  CAMPAIGN.run.merchantStock.splice(idx,1);
+  renderMerchantScreen();
+}
+
+function sellInventoryItem(itemId){
+  const item = CAMPAIGN.inventory.find(i=>i.id===itemId);
+  if(!item || item.equippedBy) return;
+  const price = Math.round(weaponPrice(item.catalogId) * MERCHANT_SELL_RATIO);
+  CAMPAIGN.gold += price;
+  CAMPAIGN.inventory = CAMPAIGN.inventory.filter(i=>i.id!==itemId);
+  renderMerchantScreen();
+}
+
+function leaveMerchant(){
+  const node = getCurrentRunNode();
+  if(node) markNodeCompleted(node.id);
+  CAMPAIGN.screen='runMap';
+  renderScreen();
+}
+
+function enterRestNode(){
+  CAMPAIGN.screen='rest';
+  renderScreen();
+}
+
+function restFullyHeal(mercId){
+  CAMPAIGN.roster[mercId].injury = {status:'available', battlesRemaining:0};
+  leaveRest();
+}
+
+function restPartialHealTwo(){
+  const injured = MERC_IDS.filter(id=>CAMPAIGN.roster[id].injury.status==='injured');
+  injured.slice(0,2).forEach(id=>{
+    const merc = CAMPAIGN.roster[id];
+    merc.injury.battlesRemaining = Math.max(0, merc.injury.battlesRemaining-1);
+    if(merc.injury.battlesRemaining<=0) merc.injury={status:'available',battlesRemaining:0};
+  });
+  leaveRest();
+}
+
+function leaveRest(){
+  const node = getCurrentRunNode();
+  if(node) markNodeCompleted(node.id);
+  CAMPAIGN.screen='runMap';
+  renderScreen();
+}
+
+/* ============================== PROTOTYPE D: SCREEN RENDERERS ============================== */
+
+function renderRecruitSelectScreen(){
+  const body=document.getElementById('recruitSelectBody');
+  body.innerHTML='';
+
+  const intro=document.createElement('div');
+  intro.className='rules-note';
+  intro.style.margin='0 0 12px';
+  intro.textContent = `Choose exactly ${RECRUIT_COMPANY_SIZE} of ${CAMPAIGN.recruitPool.length} candidates to form your company. No fixed classes — each recruit's stats and starting weapon expertise are their own; their "class" below reflects what they're currently best suited for, and can change as they level up or re-equip. Selected: ${CAMPAIGN.recruitSelected.length}/${RECRUIT_COMPANY_SIZE}.`;
+  body.appendChild(intro);
+
+  CAMPAIGN.recruitPool.forEach(r=>{
+    const isSelected = CAMPAIGN.recruitSelected.includes(r.id);
+    const atCap = CAMPAIGN.recruitSelected.length>=RECRUIT_COMPANY_SIZE && !isSelected;
+    const card=document.createElement('div');
+    card.className='merc-card'+(isSelected?' recruit-selected':'');
+    card.style.cursor = atCap ? 'default' : 'pointer';
+    card.style.opacity = atCap ? '0.45' : '1';
+    const archetype = computeArchetype(r.baseStats, null);
+    const expertiseText = WEAPON_ORDER.filter(wt=>r.expertise[wt]>0).map(wt=>`${wt} ${starString(r.expertise[wt])}`).join(', ') || 'no starting expertise';
+    const header=document.createElement('div');
+    header.className='merc-card-header';
+    header.innerHTML = `
+      <span class="mc-name">${r.name}${isSelected?' ✓':''}</span>
+      <span class="mc-summary">${archetype}</span>
+    `;
+    const bodyEl=document.createElement('div');
+    bodyEl.className='merc-card-body';
+    bodyEl.style.display='block';
+    bodyEl.innerHTML = `
+      <div class="mc-stats-row">HP ${r.baseStats.hp} · PROW ${r.baseStats.physAtk} · ARC ${r.baseStats.magAtk} · GRD ${r.baseStats.physDef} · WARD ${r.baseStats.magDef} · SPD ${r.baseStats.spd}</div>
+      <div class="mc-stats-row" style="margin-top:4px;">${TRAITS[r.trait].name} — ${TRAITS[r.trait].describe(0)}</div>
+      <div class="mc-stats-row" style="margin-top:4px;">Expertise: ${expertiseText}</div>
+    `;
+    card.appendChild(header);
+    card.appendChild(bodyEl);
+    card.addEventListener('click', ()=>{ if(!atCap || isSelected) toggleRecruitSelection(r.id); });
+    body.appendChild(card);
+  });
+
+  const confirmBtn=document.createElement('button');
+  confirmBtn.id='beginExpeditionBtn';
+  confirmBtn.style.marginTop='16px';
+  const remaining = RECRUIT_COMPANY_SIZE - CAMPAIGN.recruitSelected.length;
+  confirmBtn.disabled = remaining !== 0;
+  confirmBtn.textContent = remaining===0 ? 'Confirm Company →' : `Select ${remaining} more…`;
+  confirmBtn.onclick=()=>{ confirmRecruitSelection(); };
+  body.appendChild(confirmBtn);
+}
+
+function renderRunMap(){
+  const body=document.getElementById('runMapBody');
+  body.innerHTML='';
+
+  const run=CAMPAIGN.run;
+  const intro=document.createElement('div');
+  intro.className='rules-note';
+  intro.style.margin='0 0 12px';
+  const layerLabel = run.currentLayer+1 >= run.layers.length ? 'The Boss awaits.' : `Layer ${run.currentLayer+2} of ${run.layers.length+1}.`;
+  intro.textContent = `Run ${CAMPAIGN.runNumber}. ${layerLabel} Gold: ${CAMPAIGN.gold}. Available: ${availableMercIds().length}/${MERC_IDS.length}.`;
+  body.appendChild(intro);
+
+  if(run.lastEventOutcome){
+    const outcome=document.createElement('div');
+    outcome.className='rules-note';
+    outcome.style.margin='0 0 12px';
+    outcome.style.color='var(--brass-light)';
+    outcome.textContent = run.lastEventOutcome;
+    body.appendChild(outcome);
+    run.lastEventOutcome=null;
+  }
+
+  const nodeMeta = {
+    combat:{label:'Combat', desc:'Standard tactical battle.'},
+    elite:{label:'Elite', desc:'Tougher enemies, better reward.'},
+    event:{label:'Event', desc:'A non-combat choice.'},
+    merchant:{label:'Merchant', desc:'Buy and sell equipment.'},
+    rest:{label:'Rest', desc:'Recover injured mercenaries.'},
+    boss:{label:'Boss', desc:'The Anchor & the Conduit — split-focus fight.'},
+  };
+
+  const nodes = getNodesForSelection();
+  nodes.forEach(node=>{
+    const meta = nodeMeta[node.type];
+    const btn=document.createElement('button');
+    btn.className='level-choice-btn';
+    btn.innerHTML = `${meta.label}<small>${meta.desc}</small>`;
+    btn.onclick=()=>{ selectRunNode(node.id); };
+    body.appendChild(btn);
+  });
+
+  const companyBtn=document.createElement('button');
+  companyBtn.id='passBtn';
+  companyBtn.style.marginTop='10px';
+  companyBtn.textContent='📋 Company Menu (review roster & equipment)';
+  companyBtn.onclick=()=>{ viewCompanyMidRun(); };
+  body.appendChild(companyBtn);
+}
+
+function renderRewardScreen(){
+  const body=document.getElementById('rewardBody');
+  body.innerHTML='';
+  const intro=document.createElement('div');
+  intro.className='rules-note';
+  intro.style.margin='0 0 12px';
+  intro.textContent='Choose one reward.';
+  body.appendChild(intro);
+
+  CAMPAIGN.pendingReward.forEach((choice,idx)=>{
+    const btn=document.createElement('button');
+    btn.className='level-choice-btn';
+    btn.innerHTML = `${choice.label}${choice.desc?`<small>${choice.desc}</small>`:''}`;
+    btn.onclick=()=>{ claimReward(idx); };
+    body.appendChild(btn);
+  });
+}
+
+function claimReward(idx){
+  const choice = CAMPAIGN.pendingReward[idx];
+  if(choice.kind==='gold'){
+    CAMPAIGN.gold += choice.amount;
+    log(`+${choice.amount} Gold.`,'deploy');
+  } else if(choice.kind==='weapon'){
+    CAMPAIGN.inventory.push({id:`rwd_${Date.now()}`, type:choice.weaponType, name:choice.weaponName, catalogId:choice.weaponCatalogId, equippedBy:null});
+    log(`Gained ${choice.weaponName}.`,'deploy');
+  } else if(choice.kind==='supply'){
+    const injured = MERC_IDS.filter(id=>CAMPAIGN.roster[id].injury.status==='injured');
+    if(injured.length>0){
+      const target = injured[0];
+      const merc = CAMPAIGN.roster[target];
+      merc.injury.battlesRemaining = Math.max(0, merc.injury.battlesRemaining-1);
+      if(merc.injury.battlesRemaining<=0) merc.injury={status:'available',battlesRemaining:0};
+      log(`${merc.name} recovers somewhat.`,'deploy');
+    } else {
+      CAMPAIGN.gold += 20;
+      log('No one was injured — +20 Gold instead.','deploy');
+    }
+  }
+  CAMPAIGN.pendingReward = null;
+  CAMPAIGN.screen='runMap';
+  renderScreen();
+}
+
+
+function weaponCatalogSkillHtml(catalogId){
+  const entry=WEAPON_CATALOG[catalogId];
+  if(!entry) return '';
+  const rows=[`<div class="mc-trait"><b>Basic Attack</b> — Any Expertise · 1 CP · ${entry.basicDmgMin}-${entry.basicDmgMax} dmg</div>`];
+  (entry.skills||[]).forEach(skillEntry=>{
+    const action=resolveSkillAction(skillEntry);
+    rows.push(`<div class="mc-trait"><b>${action.label}</b> — Expertise ${skillEntry.tier}+ · ${action.cost} CP · ${action.dmgMin}-${action.dmgMax} dmg<br><span style="color:var(--parchment-dim);font-size:10.5px;">${action.desc}</span></div>`);
+  });
+  return rows.join('');
+}
+
+function renderMerchantScreen(){
+  const body=document.getElementById('merchantBody');
+  body.innerHTML='';
+
+  const goldLine=document.createElement('div');
+  goldLine.className='rules-note';
+  goldLine.style.margin='0 0 12px';
+  goldLine.textContent = `Gold: ${CAMPAIGN.gold}`;
+  body.appendChild(goldLine);
+
+  const buyLabel=document.createElement('div');
+  buyLabel.className='mc-section-label';
+  buyLabel.textContent='For Sale';
+  body.appendChild(buyLabel);
+
+  const stock = CAMPAIGN.run.merchantStock;
+  if(stock.length===0){
+    const none=document.createElement('div');
+    none.className='empty-note';
+    none.textContent='Sold out.';
+    body.appendChild(none);
+  }
+  stock.forEach((item,idx)=>{
+    const row=document.createElement('div');
+    row.className='inv-item';
+    row.innerHTML = `<span><span class="iname">${item.name}</span><span class="itype">${item.type}</span> — ${item.price}g</span>`;
+    const controls=document.createElement('div');
+    controls.style.display='flex';
+    controls.style.gap='6px';
+
+    const inspectBtn=document.createElement('button');
+    inspectBtn.textContent='Inspect Skills';
+    inspectBtn.onclick=()=>{
+      let detail=row.querySelector('.weapon-skill-preview');
+      if(detail){ detail.remove(); return; }
+      detail=document.createElement('div');
+      detail.className='weapon-skill-preview';
+      detail.style.width='100%';
+      detail.style.marginTop='6px';
+      detail.innerHTML=weaponCatalogSkillHtml(item.catalogId);
+      row.appendChild(detail);
+    };
+    controls.appendChild(inspectBtn);
+
+    const buyBtn=document.createElement('button');
+    buyBtn.textContent='Buy';
+    buyBtn.disabled = CAMPAIGN.gold < item.price;
+    buyBtn.onclick=()=>{ buyMerchantItem(idx); };
+    controls.appendChild(buyBtn);
+
+    row.appendChild(controls);
+    body.appendChild(row);
+  });
+
+  const sellLabel=document.createElement('div');
+  sellLabel.className='mc-section-label';
+  sellLabel.style.marginTop='16px';
+  sellLabel.textContent='Sell (unequipped items only)';
+  body.appendChild(sellLabel);
+
+  const sellable = CAMPAIGN.inventory.filter(i=>!i.equippedBy);
+  if(sellable.length===0){
+    const none=document.createElement('div');
+    none.className='empty-note';
+    none.textContent='Nothing to sell.';
+    body.appendChild(none);
+  }
+  sellable.forEach(item=>{
+    const price = Math.round(weaponPrice(item.catalogId) * MERCHANT_SELL_RATIO);
+    const row=document.createElement('div');
+    row.className='inv-item';
+    row.innerHTML = `<span><span class="iname">${item.name}</span><span class="itype">${item.type}</span> — sells for ${price}g</span>`;
+    const controls=document.createElement('div');
+    controls.style.display='flex';
+    controls.style.gap='6px';
+
+    const inspectBtn=document.createElement('button');
+    inspectBtn.textContent='Inspect Skills';
+    inspectBtn.onclick=()=>{
+      let detail=row.querySelector('.weapon-skill-preview');
+      if(detail){ detail.remove(); return; }
+      detail=document.createElement('div');
+      detail.className='weapon-skill-preview';
+      detail.style.width='100%';
+      detail.style.marginTop='6px';
+      detail.innerHTML=weaponCatalogSkillHtml(item.catalogId);
+      row.appendChild(detail);
+    };
+    controls.appendChild(inspectBtn);
+
+    const sellBtn=document.createElement('button');
+    sellBtn.textContent='Sell';
+    sellBtn.onclick=()=>{ sellInventoryItem(item.id); };
+    controls.appendChild(sellBtn);
+
+    row.appendChild(controls);
+    body.appendChild(row);
+  });
+
+  const companyBtn=document.createElement('button');
+  companyBtn.id='passBtn';
+  companyBtn.style.marginTop='16px';
+  companyBtn.textContent='📋 Company Menu (equip what you just bought)';
+  companyBtn.onclick=()=>{ viewCompanyMidRun(); };
+  body.appendChild(companyBtn);
+
+  const leaveBtn=document.createElement('button');
+  leaveBtn.id='beginExpeditionBtn';
+  leaveBtn.style.marginTop='10px';
+  leaveBtn.textContent='Leave Merchant →';
+  leaveBtn.onclick=()=>{ leaveMerchant(); };
+  body.appendChild(leaveBtn);
+}
+
+function renderRestScreen(){
+  const body=document.getElementById('restBody');
+  body.innerHTML='';
+
+  const injured = MERC_IDS.filter(id=>CAMPAIGN.roster[id].injury.status==='injured');
+  if(injured.length===0){
+    const none=document.createElement('div');
+    none.className='rules-note';
+    none.textContent='No one needs rest right now.';
+    body.appendChild(none);
+  } else {
+    const label=document.createElement('div');
+    label.className='mc-section-label';
+    label.textContent='Fully heal one';
+    body.appendChild(label);
+    injured.forEach(id=>{
+      const merc=CAMPAIGN.roster[id];
+      const btn=document.createElement('button');
+      btn.className='level-choice-btn';
+      btn.innerHTML = `${merc.name}<small>${injuryLabel(merc)} — ${merc.injury.battlesRemaining} expedition(s) left</small>`;
+      btn.onclick=()=>{ restFullyHeal(id); };
+      body.appendChild(btn);
+    });
+
+    const partialBtn=document.createElement('button');
+    partialBtn.className='level-choice-btn';
+    partialBtn.innerHTML = `Partially heal ${Math.min(2,injured.length)}<small>Reduces recovery time by 1 expedition each.</small>`;
+    partialBtn.onclick=()=>{ restPartialHealTwo(); };
+    body.appendChild(partialBtn);
+  }
+
+  const leaveBtn=document.createElement('button');
+  leaveBtn.id='beginExpeditionBtn';
+  leaveBtn.style.marginTop='16px';
+  leaveBtn.textContent='Continue →';
+  leaveBtn.onclick=()=>{ leaveRest(); };
+  body.appendChild(leaveBtn);
+}
+
+function renderEventScreen(){
+  const event = CAMPAIGN.run.currentEvent;
+  const titleEl=document.getElementById('eventTitle');
+  const body=document.getElementById('eventBody');
+  body.innerHTML='';
+
+  if(!event){
+    titleEl.textContent='Event Resolved';
+    const outcome=document.createElement('div');
+    outcome.className='rules-note';
+    outcome.style.margin='0 0 14px';
+    outcome.textContent = CAMPAIGN.run.lastEventOutcome || 'Nothing of note happened.';
+    body.appendChild(outcome);
+    const cont=document.createElement('button');
+    cont.id='beginExpeditionBtn';
+    cont.textContent='Continue →';
+    cont.onclick=()=>{ CAMPAIGN.run.lastEventOutcome=null; CAMPAIGN.screen='runMap'; renderScreen(); };
+    body.appendChild(cont);
+    return;
+  }
+
+  titleEl.textContent = event.title;
+  const text=document.createElement('div');
+  text.className='rules-note';
+  text.style.margin='0 0 14px';
+  text.textContent = event.text;
+  body.appendChild(text);
+
+  event.choices.forEach((choice,idx)=>{
+    const btn=document.createElement('button');
+    btn.className='level-choice-btn';
+    btn.textContent = choice.label;
+    btn.onclick=()=>{ resolveEventChoice(idx); };
+    body.appendChild(btn);
+  });
+}
+
+function renderRunEndScreen(){
+  const result = CAMPAIGN.lastRunResult;
+  const titleEl=document.getElementById('runEndTitle');
+  const body=document.getElementById('runEndBody');
+  body.innerHTML='';
+
+  const reasonText = {
+    victory:'The Boss falls. The run is complete.',
+    defeat:'The company is broken. The run ends here.',
+    attrition:'Too few mercenaries remain to continue. The run ends here.',
+  };
+  titleEl.textContent = result.won ? 'Victory!' : 'Run Failed';
+
+  const summary=document.createElement('div');
+  summary.className='rules-note';
+  summary.style.margin='0 0 14px';
+  summary.textContent = `${reasonText[result.reason]||''} Gold: ${result.gold}. Mercenaries remaining: ${result.survivors}/${MERC_IDS.length}. Nodes completed: ${result.nodesCompleted}.`;
+  body.appendChild(summary);
+
+  const cont=document.createElement('button');
+  cont.id='beginExpeditionBtn';
+  cont.textContent='Return to Company →';
+  cont.onclick=()=>{ CAMPAIGN.screen='company'; renderScreen(); };
+  body.appendChild(cont);
+}
+
+/* ============================== BOOT ============================== */
+
+function restartCampaign(){
+  CAMPAIGN = bareCampaignShell();
+  document.getElementById('log').innerHTML='';
+  renderScreen();
+}
+
+document.getElementById('restartBtn').addEventListener('click',restartCampaign);
+document.getElementById('headerBeginBtn').addEventListener('click',()=>{ handleHeaderBeginBtnClick(); });
+document.getElementById('expDetailsToggle').addEventListener('click',()=>{
+  const body=document.getElementById('expDetailsBody');
+  const caret=document.getElementById('expDetailsCaret');
+  const isOpen = body.style.display!=='none';
+  body.style.display = isOpen ? 'none' : '';
+  caret.textContent = isOpen ? '▼' : '▲';
+});
+
+restartCampaign();
+
+(function runProceduralZoneEngineSelfTest(){
+  try{
+    const profiles=['corridor','branch','fork','convergence','hub','gauntlet'];
+    for(const profile of profiles){
+      const enc=PrototypeCZoneGenerator.generate({
+        node:{id:`self_${profile}`},
+        difficulty:'normal',
+        bossMode:false,
+        runNumber:999
+      });
+      if(!PrototypeCZoneGenerator.validate(enc)) throw new Error(`Invalid ${profile} encounter`);
+      if(!enc.challenges || enc.challenges.length<1) throw new Error(`Missing ${profile} challenges`);
+      if(!enc.zones.every(z=>Number.isInteger(z.capacityPerSide) && z.capacityPerSide>=1)) throw new Error(`Invalid ${profile} capacity`);
+      if(!enc.zones.every(z=>z.terrain && typeof z.terrain.difficult==='boolean' && typeof z.terrain.hazardous==='boolean')) throw new Error(`Invalid ${profile} terrain`);
+      const runtime=new PrototypeCChallengeRuntime(enc);
+      if(!runtime.snapshot().definitions.length) throw new Error(`Challenge runtime failed for ${profile}`);
+    }
+    const badge=document.getElementById('zoneEngineStatus');
+    if(badge){badge.textContent='ZE TERRAIN PASS';badge.style.color='var(--good)';badge.style.borderColor='var(--good)';}
+  }catch(error){
+    console.error('Procedural Zone Engine self-test failed:',error);
+    const badge=document.getElementById('zoneEngineStatus');
+    if(badge){badge.textContent='ZE TERRAIN FAIL';badge.style.color='var(--warn)';badge.style.borderColor='var(--warn)';}
+  }
+})();
+
+</script>
+</body>
+</html>

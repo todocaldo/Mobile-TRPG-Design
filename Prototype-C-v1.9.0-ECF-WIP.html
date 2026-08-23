@@ -364,9 +364,9 @@
     .card{padding:10px;}
     .card h2{font-size:10px;margin-bottom:8px;padding-bottom:6px;}
 
-    /* Battlefield: shrink zones so 3-across rows never overlap on a narrow viewport */
-    #mapArea{height:400px;}
-    .zone{width:98px;min-height:60px;padding:5px 6px 6px;}
+    /* Battlefield: responsive zones + JS-normalized mobile layout fills the usable map area. */
+    #mapArea{height:var(--mobile-map-height,400px);min-height:300px;}
+    .zone{width:clamp(92px,27vw,116px);min-height:58px;padding:5px 6px 6px;}
     .zone .zname{font-size:10px;}
     .zone .zeffect{font-size:7px;min-height:9px;}
     .zone .ztokens{gap:3px;margin-top:4px;}
@@ -776,18 +776,18 @@
 @media(max-width:430px){
   .battle-columns{grid-template-columns:1fr 1fr;gap:5px;}
   .battle-columns .card{padding:5px;}
-  #mapArea{height:365px;}
-  .zone{width:72px;min-height:51px;}
-  .zone .zname{font-size:8.5px;}
-  .zone-badge{font-size:5.3px;}
-  .token{width:21px;height:21px;font-size:8px;}
-  .token .hpbar{width:21px;}
+  #mapArea{height:var(--mobile-map-height,380px);}
+  .zone{width:clamp(92px,27vw,116px);min-height:54px;}
+  .zone .zname{font-size:9px;}
+  .zone-badge{font-size:5.8px;}
+  .token{width:22px;height:22px;font-size:8.5px;}
+  .token .hpbar{width:22px;}
 }
 
 @media(max-width:370px){
   .battle-columns{grid-template-columns:1fr;}
-  #mapArea{height:350px;}
-  .zone{width:70px;min-height:48px;}
+  #mapArea{height:var(--mobile-map-height,370px);}
+  .zone{width:clamp(92px,28vw,104px);min-height:52px;}
 }
 
 
@@ -2777,6 +2777,24 @@ function generateRecruitPool(count){
   return pool;
 }
 
+// ECF Founder Candidate Rule v1: initial Founder candidates retain the normal 43-point
+// recruit budget, but must begin with combined Prowess + Arcana >= 22.
+function generateECFFounderCandidatePool(count=ECF_INITIAL_CANDIDATE_COUNT){
+  const usedNames=new Set();
+  const pool=[];
+  for(let i=0;i<count;i++){
+    let candidate=null;
+    for(let attempt=0;attempt<10000;attempt++){
+      const trial=generateRecruit(usedNames);
+      if((trial.baseStats.physAtk+trial.baseStats.magAtk)>=22){ candidate=trial; break; }
+      usedNames.delete(trial.name); // failed reroll must not consume a unique-name slot.
+    }
+    if(!candidate) throw new Error('Unable to generate Founder candidate with Prowess + Arcana >= 22.');
+    pool.push(candidate);
+  }
+  return pool;
+}
+
 // Emergent "class" label — never stored, always computed from current stats + equipped weapon,
 // so it reflects who the mercenary IS right now, not what they were assigned at creation.
 function computeArchetype(stats, equippedItem){
@@ -4158,7 +4176,7 @@ function generateRewardChoices(nodeType){
 function bareCampaignShell(){
   return {
     screen:'recruitSelect',
-    recruitPool: generateRecruitPool(RECRUIT_POOL_SIZE),
+    recruitPool: generateECFFounderCandidatePool(RECRUIT_POOL_SIZE),
     recruitSelected: [],
     roster:{}, inventory:[], lastBattleResult:null,
     gold: STARTING_GOLD, run:null, runNumber:0, battleNumber:1,
@@ -7369,7 +7387,52 @@ function connectionRoutePoints(fromId,toId){
   return clear[0]||[s,{x:s.x,y:t.y},t];
 }
 
+function isMobileBattlefieldLayout(){
+  return window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+}
+
+function computeMobileBattlefieldLayout(){
+  const ids=Object.keys(ZONE_POS||{}).filter(id=>ZONE_POS[id]&&Number.isFinite(ZONE_POS[id].x)&&Number.isFinite(ZONE_POS[id].y));
+  if(!ids.length) return {positions:{},height:360};
+  const xs=ids.map(id=>ZONE_POS[id].x), ys=ids.map(id=>ZONE_POS[id].y);
+  const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+  const area=document.getElementById('mapArea');
+  const areaWidth=Math.max(280,area?.clientWidth||window.innerWidth||390);
+  const vw=Math.max(280,window.innerWidth||390);
+  const zoneWidth=Math.min(116,Math.max(92,vw*0.27));
+  const distinctRows=[...new Set(ys.map(y=>Math.round(y/4)*4))].sort((a,b)=>a-b);
+  const rowCount=Math.max(2,distinctRows.length);
+  const verticalSpan=Math.max(1,maxY-minY);
+  // More rows / broader vertical layouts receive more height; compact maps do not retain dead space.
+  const height=Math.round(Math.min(455,Math.max(310,110+rowCount*72+(verticalSpan>60?28:0))));
+  const xMargin=Math.min(24,Math.max(13,(zoneWidth/2+5)/areaWidth*100));
+  const yMargin=Math.min(18,Math.max(11,(34/height)*100+2));
+  const positions={};
+  ids.forEach(id=>{
+    const p=ZONE_POS[id];
+    const nx=(maxX===minX)?50:xMargin+((p.x-minX)/(maxX-minX))*(100-2*xMargin);
+    const ny=(maxY===minY)?50:yMargin+((p.y-minY)/(maxY-minY))*(100-2*yMargin);
+    positions[id]={x:nx,y:ny};
+  });
+  return {positions,height,xMargin,yMargin,bounds:{minX,maxX,minY,maxY}};
+}
+
+let RENDER_ZONE_POS=null;
+function renderedZonePos(id){return RENDER_ZONE_POS?.[id]||ZONE_POS[id];}
+
+function mobileConnectionPathD(fromId,toId){
+  const a=renderedZonePos(fromId), b=renderedZonePos(toId);
+  if(!a||!b)return '';
+  const s={x:a.x*10,y:a.y*10},t={x:b.x*10,y:b.y*10};
+  // Use a compact orthogonal route on phone layouts. Canonical adjacency is unchanged.
+  const dx=Math.abs(s.x-t.x),dy=Math.abs(s.y-t.y);
+  if(dx<35||dy<35)return `M ${s.x} ${s.y} L ${t.x} ${t.y}`;
+  if(dx>=dy){const mx=(s.x+t.x)/2;return `M ${s.x} ${s.y} L ${mx} ${s.y} L ${mx} ${t.y} L ${t.x} ${t.y}`;}
+  const my=(s.y+t.y)/2;return `M ${s.x} ${s.y} L ${s.x} ${my} L ${t.x} ${my} L ${t.x} ${t.y}`;
+}
+
 function connectionPathD(fromId,toId){
+  if(isMobileBattlefieldLayout()) return mobileConnectionPathD(fromId,toId);
   const pts=connectionRoutePoints(fromId,toId);
   if(!pts.length) return '';
   return pts.map((p,i)=>`${i===0?'M':'L'} ${p.x} ${p.y}`).join(' ');
@@ -7387,6 +7450,17 @@ function validateRenderedConnectionRoutes(){
 function renderMap(){
   const area=document.getElementById('mapArea');
   area.querySelectorAll('.zone').forEach(e=>e.remove());
+
+  if(isMobileBattlefieldLayout()){
+    const mobileLayout=computeMobileBattlefieldLayout();
+    RENDER_ZONE_POS=mobileLayout.positions;
+    area.style.setProperty('--mobile-map-height',mobileLayout.height+'px');
+    area.style.height=mobileLayout.height+'px';
+  }else{
+    RENDER_ZONE_POS=null;
+    area.style.removeProperty('height');
+    area.style.removeProperty('--mobile-map-height');
+  }
 
   const svg=area.querySelector('svg.lines');
   svg.innerHTML='';
@@ -7407,7 +7481,7 @@ function renderMap(){
 
   Object.keys(ZONES).forEach(zid=>{
     const z=ZONES[zid];
-    const pos=ZONE_POS[zid];
+    const pos=renderedZonePos(zid);
     const div=document.createElement('div');
     div.className='zone'+(targetableZones.has(zid)?' targetable':'');
     div.style.left=pos.x+'%';
@@ -7479,6 +7553,13 @@ function renderMap(){
     }
   });
 }
+
+let MOBILE_MAP_RESIZE_TIMER=null;
+window.addEventListener('resize',()=>{
+  if(!document.getElementById('mapArea')||!Object.keys(ZONES||{}).length)return;
+  clearTimeout(MOBILE_MAP_RESIZE_TIMER);
+  MOBILE_MAP_RESIZE_TIMER=setTimeout(()=>{if(CAMPAIGN?.screen==='combat')renderMap();},80);
+});
 
 function tokenHtml(u){
   const pct=Math.max(0,Math.round(100*u.hp/u.maxHp));
@@ -9486,8 +9567,16 @@ function completeECFRecruitmentEvent1(recruitId=null){
   CAMPAIGN.ecfRecruitmentEvent=null;
   CAMPAIGN.ecfRecruitmentCandidates=[];
   CAMPAIGN.ecfPhase='T2_PENDING';
-  CAMPAIGN.screen='company';
-  renderScreen();
+  // ECF progression fix: Recruitment Event #1 flows directly into the Tier 2
+  // Expedition selection when a legal deployment is available. If injuries leave
+  // fewer than 3 Available mercenaries, fall back to Company Management rather
+  // than trapping the player on a cleared Event screen.
+  if(availableMercIds().length>=3){
+    beginECFTier2Selection();
+  }else{
+    CAMPAIGN.screen='company';
+    renderScreen();
+  }
   return true;
 }
 
@@ -11286,6 +11375,41 @@ function harnessEdgeCaseChecks(){
   return {checks,failures};
 }
 
+function validateECFFounderCandidateRuleV190(){
+  for(let n=0;n<500;n++){
+    const pool=generateECFFounderCandidatePool(5);
+    if(pool.length!==5) return false;
+    for(const r of pool){
+      const b=r.baseStats||{};
+      const budget=(b.physAtk||0)+(b.magAtk||0)+(b.physDef||0)+(b.magDef||0)+(b.spd||0);
+      if(budget!==RECRUIT_TACTICAL_STAT_BUDGET) return false;
+      if((b.physAtk+b.magAtk)<22) return false;
+      if(!validateRecruitStatProfile(b)) return false;
+    }
+  }
+  return true;
+}
+function validateECFRecruitment1ToTier2ProgressionV190(){
+  const oc=CAMPAIGN,om=MERC_IDS.slice();
+  try{
+    CAMPAIGN=bareCampaignShell();
+    CAMPAIGN.companyCapacity=5;
+    CAMPAIGN.ecfPhase='RECRUITMENT_1_ACTIVE';
+    CAMPAIGN.roster={};MERC_IDS=[];
+    const pool=generateRecruitPool(4);
+    pool.forEach(r=>{
+      CAMPAIGN.roster[r.id]={id:r.id,name:r.name,level:0,xp:0,traits:[{key:r.trait,tier:0}],expertise:{...r.expertise},expertiseProgress:{spear:0,sword:0,bow:0,axe:0,hammer:0,dagger:0,wand:0,staff:0,tome:0,totem:0},baseStats:{...r.baseStats},statBonus:{hp:0,physAtk:0,magAtk:0,physDef:0,magDef:0,spd:0},injury:{status:'available',battlesRemaining:0},founder:false,veteran:false};
+      MERC_IDS.push(r.id);
+    });
+    CAMPAIGN.ecfRecruitmentEvent={type:'survivors'};
+    CAMPAIGN.ecfRecruitmentCandidates=[];
+    beginExpeditionInjuryTracking();
+    if(!completeECFRecruitmentEvent1(null)) return false;
+    return CAMPAIGN.ecfPhase==='T2_SELECTION' && CAMPAIGN.screen==='runMap' && !!CAMPAIGN.run && CAMPAIGN.run.nodes?.length===2;
+  }catch(e){console.error('Recruitment #1 → Tier 2 validator',e);return false;}
+  finally{CAMPAIGN=oc;MERC_IDS=om;}
+}
+
 function validateECFStructuralFoundationV190(){
   const shell=bareCampaignShell();
   const sourceConfirm=String(confirmRecruitSelection);
@@ -11423,6 +11547,7 @@ function validateECFRecruitmentEvent1FlowV190(){
     String(beginECFRecruitmentEvent1).includes('beginExpeditionInjuryTracking()'),
     String(completeECFRecruitmentEvent1).includes('completeExpeditionInjuryRecovery()'),
     String(completeECFRecruitmentEvent1).includes("ecfPhase='T2_PENDING'"),
+    String(completeECFRecruitmentEvent1).includes('beginECFTier2Selection()'),
     String(renderEventScreen).includes('Recruitment Event — Survivors'),
     String(renderEventScreen).includes('Decline All')
   ].every(Boolean);
@@ -11502,9 +11627,11 @@ function validateECFRunTransitionV190(){
 function runECFConformanceSuiteShell(){
   return {
     suite:'Early Company Formation',
-    version:'tierb-transition-v0.8.0',
+    version:'founder-flowfix-v0.8.1',
     checks:[
       {name:'Structural Foundation',pass:validateECFStructuralFoundationV190()},
+      {name:'Founder Candidate Rule v1',pass:validateECFFounderCandidateRuleV190()},
+      {name:'Recruitment #1 → Tier 2 Progression',pass:validateECFRecruitment1ToTier2ProgressionV190()},
       {name:'Company Capacity 3-5-8',pass:validateECFCompanyCapacityV190()},
       {name:'Injury Recovery Timing',pass:validateECFInjuryRecoveryV190()},
       {name:'Expedition Recovery Hooks',pass:validateECFExpeditionRecoveryHooksV190()},

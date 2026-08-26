@@ -1333,6 +1333,328 @@ function allGridCells(){
   return cells;
 }
 
+
+
+/* ============================== CONVERGENCE v1 — ROUTE-FIRST GENERATION ============================== */
+
+// Locked Convergence stack implemented in ECF v18:
+// - Convergence Generation Principle v1
+// - Breadth & Depth Principle v1.2
+// - Graph Vocabulary v1
+// - Generation Algorithm v1
+// - Route Development Standard v1 (provisions 1–9 & 12)
+// Tuning guidance remains non-binding: Route Links are rare at 7–9 Zones and
+// 3 starting Routes become increasingly likely as battlefield size grows.
+function convergenceStartingRouteCount(zoneCount,rng){
+  if(zoneCount<=5) return 2;
+  const p3=zoneCount===6?0.35:zoneCount===7?0.55:zoneCount===8?0.78:0.88;
+  return rng()<p3?3:2;
+}
+
+function convergenceMergeProbability(zoneCount){
+  if(zoneCount<=5) return 0.12;
+  if(zoneCount===6) return 0.28;
+  if(zoneCount===7) return 0.44;
+  if(zoneCount===8) return 0.52;
+  return 0.58;
+}
+
+function convergenceRouteLinkProbability(zoneCount){
+  return zoneCount>=7 ? 0.18 : 0;
+}
+
+function buildConvergenceGraphV1(n,rng){
+  const nodes=[],edges=[],seenEdges=new Set();
+  const add=(id,x=50,y=50)=>nodes.push({id,x,y});
+  const edge=(a,b,kind='ROUTE')=>{
+    const key=[a,b].sort().join('|');
+    if(a!==b&&!seenEdges.has(key)){seenEdges.add(key);edges.push([a,b]);edgeKinds[key]=kind;return true;}
+    return false;
+  };
+  const edgeKinds={};
+  const objectiveId=`z${n-1}`;
+  const startRouteCount=Math.min(3,Math.max(2,convergenceStartingRouteCount(n,rng)));
+  const nodeRoutes={'z0':[]};
+  const operations=[];
+  let nextId=1,mergeSerial=0;
+
+  add('z0',50,92);
+  let active=[];
+  for(let i=0;i<startRouteCount;i++){
+    const id=`z${nextId++}`,routeId=`r${i+1}`;
+    add(id,20+60*(i/Math.max(1,startRouteCount-1)),68);
+    edge('z0',id,'APPROACH');
+    nodeRoutes[id]=[routeId];
+    active.push({key:routeId,members:[routeId],endpoint:id,length:1});
+  }
+
+  let remainingInternal=(n-2)-startRouteCount;
+  const mergePlanned=remainingInternal>0 && rng()<convergenceMergeProbability(n);
+  const mergeZones=mergePlanned?1:0;
+  let extensionBudget=Math.max(0,remainingInternal-mergeZones);
+
+  // Larger 2-route maps that fully merge must first develop both approaches.
+  if(mergePlanned&&startRouteCount===2&&n>=7&&extensionBudget>=2){
+    for(const route of active){
+      const id=`z${nextId++}`;add(id);edge(route.endpoint,id,'EXTEND');
+      operations.push({op:'EXTEND',routeIds:[...route.members],from:route.endpoint,to:id});
+      route.endpoint=id;route.length++;nodeRoutes[id]=[...route.members];extensionBudget--;
+    }
+  }
+
+  // All remaining size budget is spent developing independent routes BEFORE the merge.
+  // This prevents the old Camp -> fan -> early merge -> long Corridor failure mode.
+  while(extensionBudget>0){
+    const maxLen=Math.max(...active.map(r=>r.length));
+    const weighted=active.map(r=>({r,w:1+(maxLen-r.length)*0.55+(rng()<0.28?0.9:0)}));
+    let roll=rng()*weighted.reduce((s,x)=>s+x.w,0),route=weighted[0].r;
+    for(const x of weighted){roll-=x.w;if(roll<=0){route=x.r;break;}}
+    const id=`z${nextId++}`;add(id);edge(route.endpoint,id,'EXTEND');
+    operations.push({op:'EXTEND',routeIds:[...route.members],from:route.endpoint,to:id});
+    route.endpoint=id;route.length++;nodeRoutes[id]=[...route.members];extensionBudget--;
+  }
+
+  let fullMergeDepth=null;
+  if(mergePlanned&&active.length>=2&&nextId<=n-2){
+    // With three approaches, one intermediate Merge is deliberately partial (3 -> 2).
+    // With two approaches it is a complete Merge, but all available development budget
+    // has already been spent before it and the Merge proceeds directly to Objective.
+    const ranked=[...active].sort((a,b)=>b.length-a.length || a.key.localeCompare(b.key));
+    const selected=ranked.slice(0,2);
+    const mergeId=`z${nextId++}`;add(mergeId);
+    selected.forEach(r=>edge(r.endpoint,mergeId,'MERGE'));
+    const members=[...new Set(selected.flatMap(r=>r.members))];
+    nodeRoutes[mergeId]=members;
+    operations.push({op:'MERGE',routeIds:members,from:selected.map(r=>r.endpoint),to:mergeId});
+    if(active.length===2) fullMergeDepth=Math.min(...selected.map(r=>r.length));
+    active=active.filter(r=>!selected.includes(r));
+    active.push({key:`m${++mergeSerial}`,members,endpoint:mergeId,length:Math.max(...selected.map(r=>r.length))+1});
+  }
+
+  let routeLink=null;
+  if(active.length>=2 && convergenceRouteLinkProbability(n)>0 && rng()<convergenceRouteLinkProbability(n)){
+    const choices=[];
+    for(let i=0;i<active.length;i++) for(let j=i+1;j<active.length;j++) choices.push([active[i],active[j]]);
+    if(choices.length){
+      const [a,b]=choices[Math.floor(rng()*choices.length)];
+      if(edge(a.endpoint,b.endpoint,'LINK')){
+        routeLink=[a.endpoint,b.endpoint];
+        operations.push({op:'LINK',routeIds:[...a.members,...b.members],from:a.endpoint,to:b.endpoint});
+      }
+    }
+  }
+
+  // If a rounding/tuning edge case left an unused internal Zone, develop the shallowest
+  // still-active Route rather than adding breadth or post-merge Corridor depth.
+  while(nextId<=n-2){
+    const route=[...active].sort((a,b)=>a.length-b.length)[0];
+    const id=`z${nextId++}`;add(id);edge(route.endpoint,id,'EXTEND');
+    operations.push({op:'EXTEND',routeIds:[...route.members],from:route.endpoint,to:id});
+    route.endpoint=id;route.length++;nodeRoutes[id]=[...route.members];
+  }
+
+  add(objectiveId,50,9);
+  nodeRoutes[objectiveId]=active.flatMap(r=>r.members);
+  active.forEach(r=>edge(r.endpoint,objectiveId,'OBJECTIVE'));
+
+  return {
+    nodes,edges,
+    convergenceModel:{
+      standardVersion:'CONVERGENCE_V1',
+      zoneCount:n,
+      startRouteCount,
+      activeRouteCountAtObjective:active.length,
+      operations,
+      nodeRoutes,
+      edgeKinds,
+      routeLink,
+      fullMergeDepth
+    }
+  };
+}
+
+function convergenceAdjacencyFromEdges(ids,edges){
+  const adj=Object.fromEntries(ids.map(id=>[id,[]]));
+  (edges||[]).forEach(([a,b])=>{if(adj[a]&&adj[b]){adj[a].push(b);adj[b].push(a);}});
+  return adj;
+}
+function convergenceDistances(ids,edges,start){
+  const adj=convergenceAdjacencyFromEdges(ids,edges),dist=Object.fromEntries(ids.map(id=>[id,Infinity]));
+  if(!(start in dist))return dist;dist[start]=0;const q=[start];
+  while(q.length){const a=q.shift();for(const b of adj[a])if(dist[b]===Infinity){dist[b]=dist[a]+1;q.push(b);}}
+  return dist;
+}
+
+function validateConvergenceEncounterV1(encounter,{requireLayout=true}={}){
+  if(!encounter || (encounter.topologyProfile?.id||'').toUpperCase()!=='TOPO_CONVERGENCE') return true;
+  const model=encounter.convergenceModel;
+  if(!model||model.standardVersion!=='CONVERGENCE_V1') return false;
+  if(model.startRouteCount<2||model.startRouteCount>3) return false;
+  if(model.activeRouteCountAtObjective<1||model.activeRouteCountAtObjective>3) return false;
+  if((model.operations||[]).some(op=>!['EXTEND','LINK','MERGE'].includes(op.op))) return false;
+  if((model.operations||[]).filter(op=>op.op==='LINK').length>1) return false;
+  if(encounter.zones.length!==model.zoneCount) return false;
+
+  const ids=encounter.zones.map(z=>z.zoneId),entry=encounter.entry?.zoneId;
+  const objective=encounter.zones.find(z=>z.structural?.objective)?.zoneId || ids[ids.length-1];
+  const adj=convergenceAdjacencyFromEdges(ids,encounter.edges);
+  if(!entry||!objective||!adj[entry]||!adj[objective]) return false;
+  if(adj[entry].length!==model.startRouteCount) return false;
+  if(adj[objective].length!==model.activeRouteCountAtObjective) return false;
+
+  // Every internal Zone participates in forward progression; route-first generation has no leaves.
+  for(const id of ids){
+    if(id===entry||id===objective)continue;
+    if((adj[id]||[]).length<2)return false;
+  }
+
+  // Large maps may fully merge, but not immediately and never into a long post-merge Corridor.
+  if(ids.length>=7&&model.activeRouteCountAtObjective===1){
+    if((model.fullMergeDepth??0)<2)return false;
+    const mergeOps=(model.operations||[]).filter(op=>op.op==='MERGE');
+    if(!mergeOps.length)return false;
+    const finalMerge=mergeOps[mergeOps.length-1].to;
+    if(!(adj[finalMerge]||[]).includes(objective))return false;
+  }
+
+  if(requireLayout){
+    if(!validateGridLayout(encounter))return false;
+    if(!validateConvergenceLayoutRenderableV1(encounter,encounter.layout))return false;
+  }
+  return true;
+}
+
+function segmentIntersectsGridZoneRect(a,b,c,rx=12.3,ry=7.5){
+  const left=c.x-rx+0.1,right=c.x+rx-0.1,top=c.y-ry+0.1,bottom=c.y+ry-0.1;
+  const dx=b.x-a.x,dy=b.y-a.y;let t0=0,t1=1;
+  const clips=[[-dx,a.x-left],[dx,right-a.x],[-dy,a.y-top],[dy,bottom-a.y]];
+  for(const [p,q] of clips){
+    if(Math.abs(p)<1e-9){if(q<0)return false;continue;}
+    const r=q/p;if(p<0){if(r>t1)return false;if(r>t0)t0=r;}else{if(r<t0)return false;if(r<t1)t1=r;}
+  }
+  return t1>t0;
+}
+function convergenceSegmentRelation(a,b,c,d){
+  const cross=(p,q,r)=>(q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x),eps=0.0001;
+  const c1=cross(a,b,c),c2=cross(a,b,d),c3=cross(c,d,a),c4=cross(c,d,b);
+  const col=Math.abs(c1)<eps&&Math.abs(c2)<eps&&Math.abs(c3)<eps&&Math.abs(c4)<eps;
+  if(col){
+    const useX=Math.abs(b.x-a.x)>=Math.abs(b.y-a.y),A=[useX?a.x:a.y,useX?b.x:b.y].sort((x,y)=>x-y),B=[useX?c.x:c.y,useX?d.x:d.y].sort((x,y)=>x-y);
+    return Math.min(A[1],B[1])-Math.max(A[0],B[0])>0.05?'overlap':'touch';
+  }
+  const proper=((c1>eps&&c2<-eps)||(c1<-eps&&c2>eps))&&((c3>eps&&c4<-eps)||(c3<-eps&&c4>eps));
+  return proper?'cross':'none';
+}
+function validateConvergenceLayoutRenderableV1(encounter,layout){
+  if(!layout)return false;
+  const ids=encounter.zones.map(z=>z.zoneId);
+  if(ids.some(id=>!layout[id]))return false;
+  const segments=[];
+  for(const [a,b] of encounter.edges||[]){
+    const A=layout[a],B=layout[b];if(!A||!B)return false;
+    for(const id of ids){
+      if(id===a||id===b)continue;
+      if(segmentIntersectsGridZoneRect(A,B,layout[id]))return false;
+    }
+    segments.push({a,b,A,B});
+  }
+  for(let i=0;i<segments.length;i++)for(let j=i+1;j<segments.length;j++){
+    const x=segments[i],y=segments[j],shares=x.a===y.a||x.a===y.b||x.b===y.a||x.b===y.b;
+    const rel=convergenceSegmentRelation(x.A,x.B,y.A,y.B);
+    if(rel==='overlap')return false;
+    if(rel==='cross'&&!shares)return false;
+    // Even edges sharing a canonical node may not cross again away from that shared endpoint.
+    if(rel==='cross'&&shares)return false;
+  }
+  return true;
+}
+
+function convergenceLayoutScore(encounter,layout){
+  let score=0;
+  for(const [a,b] of encounter.edges||[]){
+    const A=layout[a],B=layout[b],dc=Math.abs(A.col-B.col),dr=Math.abs(A.row-B.row);
+    const cheb=Math.max(dc,dr),euclid=Math.hypot(A.x-B.x,A.y-B.y);
+    score+=(cheb===1?42:cheb===2?8:-18)-euclid*0.08;
+  }
+  return score;
+}
+
+function searchConvergenceGridLayout(encounter,rng){
+  const ids=encounter.zones.map(z=>z.zoneId),entry=encounter.entry?.zoneId;
+  const objective=encounter.zones.find(z=>z.structural?.objective)?.zoneId || ids[ids.length-1];
+  const internal=ids.filter(id=>id!==entry&&id!==objective),cells=allGridCells();
+  const model=encounter.convergenceModel||{},nodeRoutes=model.nodeRoutes||{};
+  const routeIds=[...new Set(Object.values(nodeRoutes).flat())].filter(Boolean).sort();
+  const lanes=routeIds.length===2?Object.fromEntries(routeIds.map((r,i)=>[r,i?2:0])):Object.fromEntries(routeIds.map((r,i)=>[r,Math.min(2,i)]));
+  const dCamp=convergenceDistances(ids,encounter.edges,entry),dObj=convergenceDistances(ids,encounter.edges,objective);
+  const endpointPairs=[
+    [{col:1,row:3},{col:1,row:0}],
+    [{col:0,row:3},{col:2,row:0}],
+    [{col:2,row:3},{col:0,row:0}],
+    [{col:0,row:3},{col:1,row:0}],
+    [{col:2,row:3},{col:1,row:0}],
+    [{col:1,row:3},{col:0,row:0}],
+    [{col:1,row:3},{col:2,row:0}]
+  ];
+  const cellAt=(p)=>cells.find(c=>c.col===p.col&&c.row===p.row);
+  let best=null;
+
+  for(const [startSpec,objSpec] of endpointPairs){
+    const start=cellAt(startSpec),obj=cellAt(objSpec);if(!start||!obj||start===obj)continue;
+    const fixed={[entry]:start,[objective]:obj};
+    const desired={};
+    internal.forEach(id=>{
+      const members=nodeRoutes[id]||[];
+      const col=members.length?members.reduce((s,r)=>s+(lanes[r]??1),0)/members.length:1;
+      const total=(dCamp[id]||0)+(dObj[id]||0);
+      const f=Number.isFinite(total)&&total>0?dCamp[id]/total:0.5;
+      desired[id]={col,row:3-3*f};
+    });
+    const degree=Object.fromEntries(ids.map(id=>[id,0]));(encounter.edges||[]).forEach(([a,b])=>{degree[a]++;degree[b]++;});
+    const order=[...internal].sort((a,b)=>(dCamp[a]-dCamp[b])||(degree[b]-degree[a])||a.localeCompare(b));
+    let beam=[{layout:{...fixed},used:new Set([gridCellKey(start.col,start.row),gridCellKey(obj.col,obj.row)]),score:0}];
+    for(const id of order){
+      const next=[];
+      for(const state of beam){
+        for(const cell of cells){
+          const key=gridCellKey(cell.col,cell.row);if(state.used.has(key))continue;
+          let inc=-7*Math.abs(cell.row-desired[id].row)-5*Math.abs(cell.col-desired[id].col);
+          for(const [a,b] of encounter.edges||[]){
+            const neighbor=a===id?b:b===id?a:null;if(!neighbor||!state.layout[neighbor])continue;
+            const n=state.layout[neighbor],dc=Math.abs(cell.col-n.col),dr=Math.abs(cell.row-n.row),cheb=Math.max(dc,dr);
+            inc+=cheb===1?34:cheb===2?7:-14*cheb;
+            if(dCamp[id]>dCamp[neighbor]&&cell.row>n.row)inc-=22;
+          }
+          const layout={...state.layout,[id]:cell},used=new Set(state.used);used.add(key);
+          next.push({layout,used,score:state.score+inc});
+        }
+      }
+      next.sort((a,b)=>b.score-a.score);beam=next.slice(0,900);
+      if(!beam.length)break;
+    }
+    for(const state of beam.slice(0,300)){
+      if(!validateConvergenceLayoutRenderableV1(encounter,state.layout))continue;
+      const score=state.score+convergenceLayoutScore(encounter,state.layout);
+      if(!best||score>best.score)best={layout:state.layout,score};
+    }
+  }
+  return best?.layout||null;
+}
+
+function applyGridLayoutToEncounter(encounter,layout){
+  if(!layout)return false;
+  const entryId=encounter.entry?.zoneId,start=layout[entryId];
+  encounter.grid={cols:3,rows:4,startCell:{col:start.col,row:start.row,edge:start.edge,corner:start.corner}};
+  encounter.layout={};
+  encounter.zones.forEach(zone=>{
+    const cell=layout[zone.zoneId];
+    encounter.layout[zone.zoneId]={x:cell.x,y:cell.y,col:cell.col,row:cell.row};
+    zone.gridCell={col:cell.col,row:cell.row};
+  });
+  encounter.renderabilityValidated=true;
+  return true;
+}
+
 function chooseStartGridCell(rng){
   const edgeCells=allGridCells().filter(c=>c.edge);
   return zePick(rng,edgeCells);
@@ -1365,6 +1687,19 @@ function assignEncounterToGrid(encounter,rng){
   const topology=(encounter.topologyProfile?.id||'TOPO_CORRIDOR')
     .replace('TOPO_','')
     .toLowerCase();
+
+  // Zone Placement Standard v1 + Renderable Graph Validation v1: Convergence
+  // searches alternate 3×4 arrangements before routing. A graph with no clear
+  // representation is rejected rather than knowingly drawing a misleading map.
+  if(topology==='convergence'){
+    const layout=encounter.convergencePreferredLayout || searchConvergenceGridLayout(encounter,rng);
+    if(!layout) throw new Error('Convergence graph has no compliant 3×4 representation.');
+    applyGridLayoutToEncounter(encounter,layout);
+    if(!validateConvergenceEncounterV1(encounter,{requireLayout:true})){
+      throw new Error('Convergence graph failed structural/renderability validation.');
+    }
+    return encounter;
+  }
 
   const startCell=chooseStartGridCell(rng);
   const ranked=topologyPreferredCells(topology,startCell);
@@ -1480,7 +1815,22 @@ class PrototypeCZoneGenerator {
 
     const topology = forcedTopology || zePick(rng,profilePool);
     const zoneCount = difficulty==='hard' ? zeInt(rng,7,9) : zeInt(rng,5,7);
-    const graph=this._buildGraph(topology,zoneCount,rng);
+    let graph=this._buildGraph(topology,zoneCount,rng);
+    if(topology==='convergence'){
+      let accepted=null;
+      for(let retry=0;retry<16;retry++){
+        const trial=retry===0?graph:buildConvergenceGraphV1(zoneCount,zeRng(`${seed}|convergence-regenerate-${retry}`));
+        const trialZones=trial.nodes.map((node,i)=>({zoneId:node.id,structural:{entry:i===0,objective:i===trial.nodes.length-1}}));
+        const trialEncounter={topologyProfile:{id:'TOPO_CONVERGENCE'},entry:{zoneId:'z0'},zones:trialZones,edges:trial.edges,convergenceModel:structuredClone(trial.convergenceModel)};
+        if(!validateConvergenceEncounterV1(trialEncounter,{requireLayout:false})) continue;
+        const trialLayout=searchConvergenceGridLayout(trialEncounter,rng);
+        if(!trialLayout) continue;
+        trial.convergencePreferredLayout=trialLayout;
+        accepted=trial;break;
+      }
+      if(!accepted) throw new Error('Convergence regeneration exhausted without a compliant 3×4 representation.');
+      graph=accepted;
+    }
     const effects=this._assignEffects(graph.nodes.length,rng,bossMode);
 
     const zones=graph.nodes.map((n,i)=>{
@@ -1547,6 +1897,8 @@ class PrototypeCZoneGenerator {
       entry:{zoneId:zones[0].zoneId},
       zones,
       edges:graph.edges,
+      ...(graph.convergenceModel?{convergenceModel:structuredClone(graph.convergenceModel)}:{}),
+      ...(graph.convergencePreferredLayout?{convergencePreferredLayout:structuredClone(graph.convergencePreferredLayout)}:{}),
       layout:Object.fromEntries(graph.nodes.map(n=>[n.id,{x:n.x,y:n.y}])),
       challengeProfile:challengeBundle.profile,
       challenges:challengeBundle.challenges,
@@ -1692,16 +2044,8 @@ class PrototypeCZoneGenerator {
       spokes.forEach((x,i)=>{ if(i%2===0 || spokes.length<=2) edge(x.id,final); });
       if(!edges.some(e=>e.includes(final))) edge('z1',final);
     }
-    else { // convergence
-      add('z0',50,92);
-      const mid=n-2;
-      for(let i=1;i<=mid;i++){
-        const x=18 + 64*((i-1)/Math.max(1,mid-1));
-        add(`z${i}`,x,52);
-        edge('z0',`z${i}`);
-      }
-      add(`z${n-1}`,50,9);
-      for(let i=1;i<=mid;i++) edge(`z${i}`,`z${n-1}`);
+    else { // convergence — route-first v1
+      return buildConvergenceGraphV1(n,rng);
     }
     return {nodes,edges};
   }
@@ -1719,7 +2063,9 @@ class PrototypeCZoneGenerator {
       const a=q.shift();
       adjacency[a].forEach(b=>{if(!seen.has(b)){seen.add(b);q.push(b);}});
     }
-    return seen.size===ids.size;
+    if(seen.size!==ids.size) return false;
+    if((encounter.topologyProfile?.id||'').toUpperCase()==='TOPO_CONVERGENCE' && !validateConvergenceEncounterV1(encounter,{requireLayout:!!encounter.layout})) return false;
+    return true;
   }
 }
 
@@ -6037,7 +6383,7 @@ function enemyFreeReactionAttack(enemy,target,label,damagePenalty=0){
   const beforeAP=enemy.ap;
   const oldReactionPenalty=enemy.reactionDamagePenalty||0;
   enemy.reactionDamagePenalty=Math.max(0,damagePenalty);
-  resolveAttackFree(enemy,[target],label);
+  resolveAttackFree(enemy,[target],label,'FREE');
   enemy.reactionDamagePenalty=oldReactionPenalty;
   enemy.ap=beforeAP; // explicit invariant: role reactions are free
   return true;
@@ -6304,6 +6650,20 @@ function doWeaponUtility(caster,target,action){
   return false;
 }
 
+function allocateFinalDamageAcrossHits(rawHits,finalDamage){
+  const raw=(rawHits||[]).map(x=>Math.max(0,Number(x)||0));
+  const final=Math.max(0,Number(finalDamage)||0);
+  if(raw.length<=1)return [final];
+  const out=[],total=raw.reduce((a,b)=>a+b,0);let assigned=0,remainingRaw=total;
+  for(let i=0;i<raw.length;i++){
+    if(i===raw.length-1){out.push(Math.max(0,final-assigned));break;}
+    const remainingFinal=Math.max(0,final-assigned);
+    const share=remainingRaw>0?Math.max(0,Math.min(remainingFinal,Math.round(remainingFinal*(raw[i]/remainingRaw)))):0;
+    out.push(share);assigned+=share;remainingRaw-=raw[i];
+  }
+  return out;
+}
+
 function doAttack(unit,targets,weaponAction){
   const legalIds=new Set(legalEnemyTargetsForAction(unit,weaponAction).map(t=>t.id));
   const validTargets=(targets||[]).filter(t=>t?.alive && t.side!==unit.side && legalIds.has(t.id));
@@ -6376,9 +6736,9 @@ function doAttack(unit,targets,weaponAction){
       if(unit.side==='merc') S.telemetry.damageDealtByMercs+=dmg;
       if(t.side==='merc') S.telemetry.damageReceivedByMercs+=dmg;
     }
-    const rollText=damageRolls.length>1?`Rolls ${damageRolls.join(', ')}`:`Roll ${damageRolls[0]}`;
-    const damageText=perHitDamage.length>1?perHitDamage.join(', '):`${dmg}`;
-    hitNames.push(`${t.name} — ${rollText} → ${damageText} HP${t.hp<=0?' · DOWN':''}`);
+    const displayedHitDamage=allocateFinalDamageAcrossHits(perHitDamage,dmg);
+    const hitResultText=damageRolls.map((roll,i)=>`Roll ${roll} → ${displayedHitDamage[i]} HP`).join('; ');
+    hitNames.push(`${t.name} — ${hitResultText}${t.hp<=0?' · DOWN':''}`);
 
     if(weaponAction.debuff && t.alive) t.debuffBoth=Math.max(t.debuffBoth||0,weaponAction.debuff);
     if(weaponAction.movePenalty && t.alive) applySlow(t,weaponAction.movePenalty);
@@ -6505,7 +6865,7 @@ function enemyBasicAttack(unit,targets){
   if((unit.ap??0)<cost) return false;
   if(!spendUnitAP(unit,cost)) return false;
   unit.attackedThisActivation=true;
-  resolveAttackFree(unit,targets,'Attack');
+  resolveAttackFree(unit,targets,'Attack',`${cost} AP`);
   return true;
 }
 
@@ -6520,7 +6880,7 @@ function enemySignatureAttack(unit,targets,label,cost,damageBonus=0){
   unit.attackedThisActivation=true;
   unit.signatureUsedThisActivation=true;
 
-  resolveAttackFree(unit,targets,label);
+  resolveAttackFree(unit,targets,label,`${cost} AP`);
 
   unit.attackDmgMin=oldMin;
   unit.attackDmgMax=oldMax;
@@ -7022,7 +7382,7 @@ function expandAoeTargets(unit, primaryTarget, candidatePool){
   return candidatePool.filter(m=>m.zone===primaryTarget.zone);
 }
 
-function resolveAttackFree(attacker,targets,label){
+function resolveAttackFree(attacker,targets,label,costNote=null){
   const hitNames=[];
 
   if(S?.telemetry && attacker.side==='enemy'){
@@ -7098,7 +7458,8 @@ function resolveAttackFree(attacker,targets,label){
       resolveMercReactionAttack(t,attacker,'Riposte');
     }
   });
-  log(`${attacker.name} attacks ${hitNames.join(', ')}.`,'dmg');
+  const costSuffix=costNote?` (${costNote})`:'';
+  log(`${attacker.name} uses ${label} on ${hitNames.join(', ')}.${costSuffix}`,'dmg');
   revealHostileOnOffense(attacker,targets);
 }
 
@@ -10011,8 +10372,10 @@ function generateECFTierBEncounter(){
       else {z.features.push('HIGH_GROUND');z.tags.push('HIGH_GROUND');mods++;}
     }
     const obj=zones[zones.length-1];obj.name='Boss Ground';obj.structural.objective=true;obj.tags.push('OBJECTIVE');
-    const enc={encounterId:`ECF_TB_${zeHashSeed(seedBase+'|'+attempt)}`,seed:`${seedBase}|${attempt}`,schemaVersion:'1.0.0',contentVersion:'ECF-TB-1.0.0',topologyProfile:{id:`TOPO_${topology.toUpperCase()}`,version:'1.0.0'},entry:{zoneId:zones[0].zoneId},zones,edges:graph.edges,challengeProfile:'DEFEAT_BOSS',challenges:[],objective:{objectiveId:'OBJECTIVE_DEFEAT_BOSS',type:'OB_DEFEAT_BOSS',priority:'PRIMARY',requiredChallengeIds:[]},ecfTier:'TB'};
-    applyLocationTheme(enc,rng);assignEncounterToGrid(enc,rng);
+    const enc={encounterId:`ECF_TB_${zeHashSeed(seedBase+'|'+attempt)}`,seed:`${seedBase}|${attempt}`,schemaVersion:'1.0.0',contentVersion:'ECF-TB-1.0.0',topologyProfile:{id:`TOPO_${topology.toUpperCase()}`,version:'1.0.0'},entry:{zoneId:zones[0].zoneId},zones,edges:graph.edges,...(graph.convergenceModel?{convergenceModel:structuredClone(graph.convergenceModel)}:{}),challengeProfile:'DEFEAT_BOSS',challenges:[],objective:{objectiveId:'OBJECTIVE_DEFEAT_BOSS',type:'OB_DEFEAT_BOSS',priority:'PRIMARY',requiredChallengeIds:[]},ecfTier:'TB'};
+    applyLocationTheme(enc,rng);
+    try{ assignEncounterToGrid(enc,rng); }
+    catch(err){ if(topology==='convergence') continue; throw err; }
     if(PrototypeCZoneGenerator.validate(enc) && encounterSupportsEnemyRoster(enc,4)) return enc;
   }
   throw new Error('Tier B encounter generation failed after 64 attempts.');
@@ -10045,53 +10408,61 @@ function finishECFTierBResolution(won){
   if(!won){endRun(false,'defeat');return;}
   CAMPAIGN.run=null;CAMPAIGN.ecfFineDraft=generateECFFineDraft();CAMPAIGN.ecfPhase='TB_FINE_DRAFT';CAMPAIGN.screen='reward';renderScreen();
 }
-function generateECFFinalPrisonerDraft(){
-  const open=Math.max(0,ECF_COMPANY_CAPACITY_STAGES.FULL-livingCompanyCount()),count=open>0?open+2:3,used=new Set(MERC_IDS.map(id=>CAMPAIGN.roster?.[id]?.name).filter(Boolean));
+function generateECFFinalPrisonerDraft({livingCountOverride=null,extraUsedNames=[]}={}){
+  const living=livingCountOverride==null?livingCompanyCount():livingCountOverride;
+  const open=Math.max(0,ECF_COMPANY_CAPACITY_STAGES.FULL-living),count=open>0?open+2:3;
+  const used=new Set(MERC_IDS.map(id=>CAMPAIGN.roster?.[id]?.name).filter(Boolean));
+  (extraUsedNames||[]).filter(Boolean).forEach(name=>used.add(name));
   const flags=Array.from({length:count},()=>Math.random()<ECF_TIER_B.finalDraftVeteranChancePerCandidate);if(flags.every(Boolean))flags[Math.floor(Math.random()*flags.length)]=false;
   return flags.map(f=>f?generateECFStandardVeteran(used):ecfNormalRecruit(used));
 }
 function claimECFTBFineWeapon(catalogId){
   if(CAMPAIGN.ecfPhase!=='TB_FINE_DRAFT'||CAMPAIGN.ecfFineClaimInProgress)return false;
-  const pick=(CAMPAIGN.ecfFineDraft||[]).find(x=>x.catalogId===catalogId);
-  if(!pick)return false;
+  const pick=(CAMPAIGN.ecfFineDraft||[]).find(x=>x.catalogId===catalogId);if(!pick)return false;
   CAMPAIGN.ecfFineClaimInProgress=true;
   try{
-    // Prepare the destination state before consuming the reward so a generation
-    // error cannot duplicate the selected Fine weapon on retry.
-    const finalDraft=generateECFFinalPrisonerDraft();
+    const pendingVeteran=CAMPAIGN.ecfPendingVeteranRequest||null;
+    const veteranCanJoin=!!pendingVeteran&&openCompanySlots()>0;
+    let finalDraft=generateECFFinalPrisonerDraft({
+      livingCountOverride:livingCompanyCount()+(veteranCanJoin?1:0),
+      extraUsedNames:pendingVeteran?[pendingVeteran.name]:[]
+    });
 
     CAMPAIGN.inventory.push({id:`ecf_tb_fine_${Date.now()}`,type:pick.type,name:pick.name,catalogId:pick.catalogId,equippedBy:null});
     CAMPAIGN.ecfFineDraft=null;
 
-    // Locked timing: accepted Veteran's Request joins after Boss battle and Fine draft,
-    // before Final Prisoner Draft. A join failure cannot strand progression.
-    if(CAMPAIGN.ecfPendingVeteranRequest){
-      const veteran=CAMPAIGN.ecfPendingVeteranRequest;
-      try{
-        if(!addECFRecruitToCompany(veteran)){
-          log(`${veteran.name} could not join because the company has no open slot.`,'deploy');
-        }
-      }catch(err){
-        console.error('Veteran Request join failed',err);
-        log(`${veteran.name} could not be added; continuing to the Final Prisoner Draft.`,'death');
-      }
+    if(pendingVeteran){
+      let joined=false;
+      try{ joined=addECFRecruitToCompany(pendingVeteran); }
+      catch(err){console.error('Veteran Request join failed',err);}
       CAMPAIGN.ecfPendingVeteranRequest=null;
+      if(!joined){
+        log(`${pendingVeteran.name} could not be added; continuing to the Final Prisoner Draft.`,'death');
+        try{finalDraft=generateECFFinalPrisonerDraft({extraUsedNames:[pendingVeteran.name]});}catch(err){console.error('Final Draft refresh failed',err);}
+      }
     }
 
-    CAMPAIGN.ecfFinalPrisonerDraft=finalDraft;
-    CAMPAIGN.ecfFinalPrisonerSelected=[];
-    CAMPAIGN.ecfPhase='FINAL_PRISONER_DRAFT';
-    CAMPAIGN.screen='event';
-    CAMPAIGN.ecfFineClaimInProgress=false;
-    renderScreen();
-    return true;
+    CAMPAIGN.ecfFinalPrisonerDraft=finalDraft;CAMPAIGN.ecfFinalPrisonerSelected=[];
+    CAMPAIGN.ecfPhase='FINAL_PRISONER_DRAFT';CAMPAIGN.screen='event';CAMPAIGN.ecfFineClaimInProgress=false;
+    renderScreen();return true;
   }catch(err){
     console.error('Tier B Fine reward transition failed',err);
     CAMPAIGN.ecfFineClaimInProgress=false;
     log('Fine reward transition failed safely. Please select the reward again.','death');
-    renderScreen();
-    return false;
+    renderScreen();return false;
   }
+}
+function enterRun1NodeSelectionFromECF(){
+  if(CAMPAIGN.ecfPhase!=='RUN0_COMPLETE')return false;
+  if(!prepareECFRun1Transition())return false;
+  if(availableMercIds().length<3){
+    log('Not enough available mercenaries to begin Run 1 (need at least 3).');
+    CAMPAIGN.screen='company';renderScreen();return false;
+  }
+  CAMPAIGN.runNumber=1;
+  CAMPAIGN.run=generateRunMap(1);
+  CAMPAIGN.screen='runMap';CAMPAIGN.returnScreen=null;
+  renderScreen();return true;
 }
 
 function completeECFFinalPrisonerDraft(selectedIds=[]){
@@ -12341,39 +12712,58 @@ function validateConnectionRoutingStandardV2(){
 }
 
 
+
 function validateEnemyArcherV1V18(){
   const archer=ENEMY_BODIES.find(b=>b.body==='Archer');
-  if(!archer||archer.range!==1)return false;
-  const savedZ=ZONES,savedPos=ZONE_POS;
-  try{
-    ZONES={a:{features:[],terrain:{}},b:{features:[],terrain:{}},c:{features:[],terrain:{}}};
-    ZONE_POS={a:{x:0,y:0},b:{x:1,y:0},c:{x:2,y:0}};
-    return String(effectiveEnemyRange).includes('canonicalEffectiveAttackRangeFromZone');
-  }finally{ZONES=savedZ;ZONE_POS=savedPos;}
+  return !!archer&&archer.range===1&&String(effectiveEnemyRange).includes('canonicalEffectiveAttackRangeFromZone');
 }
 function validateRevealOnOffenseV18(){
   const src=String(revealHostileOnOffense),free=String(resolveAttackFree);
   return src.includes('attacker.hidden=false')&&src.includes('attacker.revealedByOffense=true')&&
-    src.includes("t?.side==='merc'")&&free.includes('revealHostileOnOffense(attacker,targets)')&&
-    String(hostileVisibleToMercs).includes('e.revealedByOffense');
+    src.includes("t?.side==='merc'")&&free.includes('revealHostileOnOffense(attacker,targets)')&&String(hostileVisibleToMercs).includes('e.revealedByOffense');
 }
 function validateDamageRollVisibilityV18(){
-  return String(resolveHit).includes('attacker._lastDamageRoll=rolled')&&
-    String(resolveEnemyHit).includes('attacker._lastDamageRoll=rolled')&&
-    String(doAttack).includes('Rolls ${damageRolls.join')&&String(doAttack).includes('Roll ${damageRolls[0]}')&&
-    String(resolveAttackFree).includes('Roll ${damageRoll}');
+  return String(resolveHit).includes('attacker._lastDamageRoll=rolled')&&String(resolveEnemyHit).includes('attacker._lastDamageRoll=rolled')&&
+    String(doAttack).includes('Roll ${roll} → ${displayedHitDamage[i]} HP')&&String(resolveAttackFree).includes('Roll ${damageRoll} → ${dmg} HP')&&
+    String(enemyBasicAttack).includes('`${cost} AP`')&&String(enemyFreeReactionAttack).includes("'FREE'");
 }
 function validateTierBFineRewardTransitionV18(){
   const src=String(claimECFTBFineWeapon);
-  return src.includes('ecfFineClaimInProgress')&&src.includes("ecfPhase='FINAL_PRISONER_DRAFT'")&&
-    src.includes("CAMPAIGN.screen='event'")&&src.includes('continuing to the Final Prisoner Draft')&&
-    src.includes('renderScreen()');
+  return src.includes('ecfFineClaimInProgress')&&src.includes('livingCountOverride:livingCompanyCount()+(veteranCanJoin?1:0)')&&
+    src.includes("ecfPhase='FINAL_PRISONER_DRAFT'")&&src.includes("CAMPAIGN.screen='event'")&&src.includes('continuing to the Final Prisoner Draft');
 }
 function validateRun0ToRun1NodeSelectionV18(){
   const helper=String(enterRun1NodeSelectionFromECF),done=String(completeECFFinalPrisonerDraft);
-  return helper.includes('prepareECFRun1Transition()')&&helper.includes('CAMPAIGN.runNumber=1')&&
-    helper.includes('generateRunMap(1)')&&helper.includes("CAMPAIGN.screen='runMap'")&&
-    done.includes('enterRun1NodeSelectionFromECF()');
+  return helper.includes('prepareECFRun1Transition()')&&helper.includes('CAMPAIGN.runNumber=1')&&helper.includes('generateRunMap(1)')&&
+    helper.includes("CAMPAIGN.screen='runMap'")&&done.includes('enterRun1NodeSelectionFromECF()');
+}
+function validateConvergenceGenerationV1V18(){
+  try{
+    for(let n=5;n<=9;n++){
+      for(let i=0;i<8;i++){
+        let accepted=null;
+        for(let attempt=0;attempt<16&&!accepted;attempt++){
+          const rng=zeRng(`conv-v18-${n}-${i}-${attempt}`),graph=buildConvergenceGraphV1(n,rng);
+          const zones=graph.nodes.map((node,idx)=>({zoneId:node.id,capacityPerSide:2,terrain:{difficult:false,hazardous:false},features:[],structural:{entry:idx===0,objective:idx===graph.nodes.length-1}}));
+          const enc={topologyProfile:{id:'TOPO_CONVERGENCE'},entry:{zoneId:'z0'},zones,edges:graph.edges,convergenceModel:structuredClone(graph.convergenceModel)};
+          if(!validateConvergenceEncounterV1(enc,{requireLayout:false}))continue;
+          const layout=searchConvergenceGridLayout(enc,rng);if(!layout)continue;applyGridLayoutToEncounter(enc,layout);
+          if(validateConvergenceEncounterV1(enc,{requireLayout:true}))accepted=enc;
+        }
+        if(!accepted)return false;
+        if(accepted.convergenceModel.startRouteCount<2||accepted.convergenceModel.startRouteCount>3)return false;
+        if(accepted.convergenceModel.operations.some(op=>op.op==='SPLIT'))return false;
+      }
+    }
+    return true;
+  }catch(e){console.error('Convergence v1 validator',e);return false;}
+}
+function validateConvergencePlacementSearchV18(){
+  return String(assignEncounterToGrid).includes("topology==='convergence'")&&
+    String(assignEncounterToGrid).includes('searchConvergenceGridLayout')&&
+    String(assignEncounterToGrid).includes('no compliant 3×4 representation')&&
+    String(validateConvergenceLayoutRenderableV1).includes("rel==='cross'")&&
+    String(validateConvergenceLayoutRenderableV1).includes("rel==='overlap'");
 }
 
 function runECFConformanceSuiteShell(){
@@ -12419,6 +12809,8 @@ function runECFConformanceSuiteShell(){
       {name:'Battle Log Damage Roll Visibility v1 v18',pass:validateDamageRollVisibilityV18()},
       {name:'Tier B Fine Reward Transition v18',pass:validateTierBFineRewardTransitionV18()},
       {name:'Run 0 → Run 1 Node Selection v18',pass:validateRun0ToRun1NodeSelectionV18()},
+      {name:'Convergence Generation Algorithm v1 v18',pass:validateConvergenceGenerationV1V18()},
+      {name:'Convergence Placement + Renderability v18',pass:validateConvergencePlacementSearchV18()},
       {name:'Connection Routing Standard v2 / Diagonal Routing v17',pass:validateConnectionRoutingStandardV2()},
       {name:'Run 0 → Run 1 Persistence',pass:validateECFRunTransitionV190()}
     ],
@@ -12474,6 +12866,13 @@ function harnessValidatorRegistry(){
     ['ECF Tier B Flow v0.8.0',harnessValidatorRef('validateECFTierBFlowV190')],
     ['ECF v15 Tier B Victory Transaction',harnessValidatorRef('validateTierBVictoryTransactionV15')],
     ['ECF v18 Battle-End Session Compatibility',harnessValidatorRef('validateBattleEndSessionCompatibilityV16')],
+    ['ECF v18 Enemy Archer v1',harnessValidatorRef('validateEnemyArcherV1V18')],
+    ['ECF v18 Reveal-on-Offense v1',harnessValidatorRef('validateRevealOnOffenseV18')],
+    ['ECF v18 Damage Roll Visibility',harnessValidatorRef('validateDamageRollVisibilityV18')],
+    ['ECF v18 Tier B Fine Reward Transition',harnessValidatorRef('validateTierBFineRewardTransitionV18')],
+    ['ECF v18 Run 0 to Run 1 Node Selection',harnessValidatorRef('validateRun0ToRun1NodeSelectionV18')],
+    ['ECF v18 Convergence Generation v1',harnessValidatorRef('validateConvergenceGenerationV1V18')],
+    ['ECF v18 Convergence Placement + Renderability',harnessValidatorRef('validateConvergencePlacementSearchV18')],
     ['ECF Run 0 to Run 1 Persistence v0.8.0',harnessValidatorRef('validateECFRunTransitionV190')],
     ['v1.8.21 Mobile Combat Readability',harnessValidatorRef('validateMobileCombatReadabilityV1821')],
     ['v1.8.20 Attack Targeting/Defender Response',harnessValidatorRef('validateAttackTargetingAndDefenderResponseV1820')],

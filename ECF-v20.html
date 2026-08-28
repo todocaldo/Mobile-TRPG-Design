@@ -1901,436 +1901,344 @@ function validateBranchPlacementSearchV19(){
   return true;
 }
 
+/* ============================== GAUNTLET / HUB / FORK v20 ============================== */
+function topologyEdgeKeyV20(a,b){return [a,b].sort().join('|');}
+function topologyAdjacencyV20(ids,edges){
+  const adj=Object.fromEntries(ids.map(id=>[id,[]]));
+  (edges||[]).forEach(([a,b])=>{if(adj[a]&&adj[b]){adj[a].push(b);adj[b].push(a);}});
+  return adj;
+}
+function topologyDistancesV20(ids,edges,start,blocked=null){
+  const adj=topologyAdjacencyV20(ids,edges),dist=Object.fromEntries(ids.map(id=>[id,Infinity]));
+  if(blocked===start||!(start in dist))return dist;
+  dist[start]=0;const q=[start];
+  while(q.length){const a=q.shift();for(const b of adj[a]||[]){if(b===blocked||a===blocked)continue;if(dist[b]===Infinity){dist[b]=dist[a]+1;q.push(b);}}}
+  return dist;
+}
+function topologyConnectedWithoutV20(ids,edges,start,target,blocked){
+  const d=topologyDistancesV20(ids,edges,start,blocked);return Number.isFinite(d[target]);
+}
+function topologyGenericRenderableV20(encounter,layout){return validateConvergenceLayoutRenderableV1(encounter,layout);}
 
-/* ============================== TOPOLOGY FORMALIZATION — ECF v20 ============================== */
+/* ------------------------------ Gauntlet v1 ------------------------------ */
+function buildGauntletGraphV1(n,rng){
+  const nodes=[],edges=[],seen=new Set(),nodeRoles={},operations=[];
+  const add=(id,role)=>{nodes.push({id,x:50,y:50});nodeRoles[id]=role;};
+  const edge=(a,b)=>{const k=topologyEdgeKeyV20(a,b);if(a!==b&&!seen.has(k)){seen.add(k);edges.push([a,b]);}};
+  const objective=`z${n-1}`;
+  const maxSides=Math.min(2,Math.max(0,n-4));
+  let sideCount=maxSides===0?0:(rng()<0.34?0:(maxSides===1||rng()<0.62?1:2));
+  let spineNodeCount=n-sideCount;
+  if(spineNodeCount<4){sideCount=Math.max(0,n-4);spineNodeCount=n-sideCount;}
+  add('z0','CAMP');
+  const spine=['z0'];let next=1;
+  for(let i=1;i<spineNodeCount-1;i++){
+    const id=`z${next++}`;add(id,'SPINE');edge(spine[spine.length-1],id);operations.push({op:'EXTEND_SPINE',from:spine[spine.length-1],to:id});spine.push(id);
+  }
+  // Reserve z(n-1) for Objective, then add optional dead-end Side Zones so Objective remains the last node.
+  const sideZones=[],eligible=spine.slice(1),hosts=[];
+  for(let i=0;i<sideCount;i++){
+    const available=eligible.filter(x=>!hosts.includes(x));if(!available.length)break;
+    const host=available[Math.floor(rng()*available.length)],id=`z${next++}`;add(id,'SIDE');edge(host,id);hosts.push(host);sideZones.push({zoneId:id,host});operations.push({op:'ADD_SIDE',host,to:id});
+  }
+  add(objective,'OBJECTIVE');edge(spine[spine.length-1],objective);operations.push({op:'CONNECT_OBJECTIVE',from:spine[spine.length-1],to:objective});spine.push(objective);
+  return {nodes,edges,gauntletModel:{standardVersion:'GAUNTLET_V1',orderedSpine:spine,spineZones:spine.slice(1,-1),sideZones,nodeRoles,operations}};
+}
+function validateGauntletEncounterV1(encounter,{requireLayout=true}={}){
+  if(!encounter||(encounter.topologyProfile?.id||'').toUpperCase()!=='TOPO_GAUNTLET')return true;
+  const m=encounter.gauntletModel;if(!m||m.standardVersion!=='GAUNTLET_V1')return false;
+  const ids=encounter.zones.map(z=>z.zoneId),entry=encounter.entry?.zoneId,obj=encounter.zones.find(z=>z.structural?.objective)?.zoneId||ids[ids.length-1];
+  if(ids.length<5||!entry||!obj)return false;
+  const roles=m.nodeRoles||{},spine=m.orderedSpine||[],sides=m.sideZones||[];
+  if(Object.values(roles).filter(r=>r==='CAMP').length!==1||Object.values(roles).filter(r=>r==='OBJECTIVE').length!==1)return false;
+  if(roles[entry]!=='CAMP'||roles[obj]!=='OBJECTIVE')return false;
+  if(spine[0]!==entry||spine[spine.length-1]!==obj||spine.length<4)return false;
+  if(new Set(spine).size!==spine.length||spine.some(id=>!ids.includes(id)))return false;
+  const adj=topologyAdjacencyV20(ids,encounter.edges);
+  if((adj[entry]||[]).length!==1||(adj[obj]||[]).length!==1)return false;
+  for(let i=1;i<spine.length;i++)if(!(adj[spine[i-1]]||[]).includes(spine[i]))return false;
+  for(let i=0;i<spine.length;i++)for(let j=i+2;j<spine.length;j++)if((adj[spine[i]]||[]).includes(spine[j]))return false;
+  if(sides.length>2)return false;
+  const hostSet=new Set();
+  for(const s of sides){if(!ids.includes(s.zoneId)||!spine.slice(1,-1).includes(s.host)||hostSet.has(s.host))return false;hostSet.add(s.host);if((adj[s.zoneId]||[]).length!==1||(adj[s.zoneId]||[])[0]!==s.host)return false;}
+  for(const id of ids){if(!['CAMP','SPINE','SIDE','OBJECTIVE'].includes(roles[id]))return false;if(id!==entry&&id!==obj&&roles[id]==='SPINE'&&topologyConnectedWithoutV20(ids,encounter.edges,entry,obj,id))return false;}
+  const reachable=topologyDistancesV20(ids,encounter.edges,entry);if(ids.some(id=>!Number.isFinite(reachable[id])))return false;
+  if(requireLayout){if(!validateGridLayout(encounter)||!topologyGenericRenderableV20(encounter,encounter.layout))return false;}
+  return true;
+}
 
-function topoEdgeKeyV20(a,b){return [a,b].sort().join('|');}
-function topoAdjV20(ids,edges){
-  const a=Object.fromEntries(ids.map(id=>[id,[]]));
-  for(const [x,y] of edges||[]){if(a[x]&&a[y]){a[x].push(y);a[y].push(x);}}
-  return a;
+/* ------------------------------ Hub v1 ------------------------------ */
+function buildHubGraphV1(n,rng){
+  const nodes=[],edges=[],seen=new Set(),nodeRoles={},regions={},peripheralLinks=[];
+  const add=(id,role)=>{nodes.push({id,x:50,y:50});nodeRoles[id]=role;};
+  const edge=(a,b)=>{const k=topologyEdgeKeyV20(a,b);if(a!==b&&!seen.has(k)){seen.add(k);edges.push([a,b]);return true;}return false;};
+  const objective=`z${n-1}`,hub='z1';
+  add('z0','CAMP');add(hub,'HUB');let next=2,available=n-3;
+  let campExtra=0,objExtra=0;
+  if(n>=7){campExtra=1;objExtra=1;available-=2;}
+  else if(n===6&&rng()<0.55){if(rng()<0.5)campExtra=1;else objExtra=1;available--;}
+  if(n>=9&&available>2&&rng()<0.45){if(rng()<0.5)campExtra=Math.min(2,campExtra+1);else objExtra=Math.min(2,objExtra+1);available--;}
+
+  let prev='z0';const campRegion=['z0'];
+  for(let i=0;i<campExtra;i++){const id=`z${next++}`;add(id,'APPROACH');edge(prev,id);prev=id;campRegion.push(id);}edge(prev,hub);regions.camp=campRegion;
+
+  const objectiveApproach=[];
+  for(let i=0;i<objExtra;i++){const id=`z${next++}`;add(id,'APPROACH');objectiveApproach.push(id);}
+  if(objectiveApproach.length){edge(hub,objectiveApproach[0]);for(let i=1;i<objectiveApproach.length;i++)edge(objectiveApproach[i-1],objectiveApproach[i]);}
+  else edge(hub,objective);
+  regions.objective=[...objectiveApproach,objective];
+
+  const targetDegree=Math.min(5,Math.max(3,3+Math.floor((n-6)/2))),extraSpokeTarget=Math.min(available,Math.max(1,targetDegree-2)),spokeIds=[];
+  for(let i=0;i<extraSpokeTarget;i++){const id=`z${next++}`;add(id,'HUB_SPOKE');edge(hub,id);spokeIds.push(id);regions[`region${i+1}`]=[id];available--;}
+  let cycle=0;
+  while(available>0&&spokeIds.length){const reg=`region${(cycle%spokeIds.length)+1}`,chain=regions[reg],host=chain[chain.length-1];if(chain.length>=3){cycle++;if(cycle>30)break;continue;}const id=`z${next++}`;add(id,'PERIPHERAL');edge(host,id);chain.push(id);available--;cycle++;}
+  if(spokeIds.length>=2&&n>=8&&rng()<0.24){const a=regions.region1?.at(-1),b=regions.region2?.at(-1);if(a&&b&&edge(a,b))peripheralLinks.push([a,b]);}
+  add(objective,'OBJECTIVE');if(objectiveApproach.length)edge(objectiveApproach.at(-1),objective);
+  return {nodes,edges,hubModel:{standardVersion:'HUB_V1',hubZone:hub,spokes:spokeIds,regions,peripheralLinks,nodeRoles}};
 }
-function topoDistancesV20(ids,edges,start,blocked=null){
-  const adj=topoAdjV20(ids,edges),d=Object.fromEntries(ids.map(id=>[id,Infinity]));
-  if(blocked===start||!adj[start])return d;
-  d[start]=0;const q=[start];
-  while(q.length){const x=q.shift();for(const y of adj[x]||[]){if(y===blocked||d[y]!==Infinity)continue;d[y]=d[x]+1;q.push(y);}}
-  return d;
+function hubAllShortestPathsUseHubV20(encounter){
+  const ids=encounter.zones.map(z=>z.zoneId),entry=encounter.entry?.zoneId,obj=encounter.zones.find(z=>z.structural?.objective)?.zoneId||ids[ids.length-1],hub=encounter.hubModel?.hubZone;
+  const d=topologyDistancesV20(ids,encounter.edges,entry)[obj];if(!Number.isFinite(d))return false;
+  const dWithout=topologyDistancesV20(ids,encounter.edges,entry,hub)[obj];return !Number.isFinite(dWithout)||dWithout>d;
 }
-function topoComponentsWithoutV20(ids,edges,blocked){
-  const remain=ids.filter(id=>id!==blocked),adj=topoAdjV20(ids,edges),seen=new Set();let count=0;
-  for(const s of remain){if(seen.has(s))continue;count++;const q=[s];seen.add(s);while(q.length){const x=q.shift();for(const y of adj[x]||[]){if(y===blocked||seen.has(y))continue;seen.add(y);q.push(y);}}}
-  return count;
+function validateHubEncounterV1(encounter,{requireLayout=true}={}){
+  if(!encounter||(encounter.topologyProfile?.id||'').toUpperCase()!=='TOPO_HUB')return true;
+  const m=encounter.hubModel;if(!m||m.standardVersion!=='HUB_V1')return false;
+  const ids=encounter.zones.map(z=>z.zoneId),entry=encounter.entry?.zoneId,obj=encounter.zones.find(z=>z.structural?.objective)?.zoneId||ids[ids.length-1],hub=m.hubZone,roles=m.nodeRoles||{};
+  if(!hub||hub===entry||hub===obj||!ids.includes(hub))return false;
+  if(Object.values(roles).filter(r=>r==='HUB').length!==1||roles[hub]!=='HUB'||roles[entry]!=='CAMP'||roles[obj]!=='OBJECTIVE')return false;
+  const adj=topologyAdjacencyV20(ids,encounter.edges),hd=(adj[hub]||[]).length;
+  if(hd<3||hd>5)return false;
+  if((adj[entry]||[]).includes(obj))return false;
+  if(!hubAllShortestPathsUseHubV20(encounter))return false;
+  const components=[];const rem=ids.filter(x=>x!==hub),seen=new Set();
+  for(const start of rem){if(seen.has(start))continue;const comp=[];const q=[start];seen.add(start);while(q.length){const a=q.shift();comp.push(a);for(const b of adj[a]||[])if(b!==hub&&!seen.has(b)){seen.add(b);q.push(b);}}components.push(comp);}
+  if(components.length<2)return false; // also rejects a complete Outer Ring that keeps all periphery connected.
+  const links=m.peripheralLinks||[];if(links.length>2)return false;
+  for(const [a,b] of links){if(!ids.includes(a)||!ids.includes(b)||[entry,obj,hub].includes(a)||[entry,obj,hub].includes(b))return false;if(!(adj[a]||[]).includes(b))return false;}
+  const spokes=m.spokes||[];if(new Set(spokes).size!==spokes.length)return false;for(const sp of spokes)if(!ids.includes(sp)||!(adj[hub]||[]).includes(sp))return false;
+  for(const id of ids){if(!['CAMP','OBJECTIVE','HUB','HUB_SPOKE','PERIPHERAL','APPROACH'].includes(roles[id]))return false;if(id!==hub&&(adj[id]||[]).length>=hd)return false;if(id!==hub&&(adj[id]||[]).length>3)return false;}
+  const dHub=topologyDistancesV20(ids,encounter.edges,hub);if((dHub[entry]??Infinity)>3||(dHub[obj]??Infinity)>3)return false;
+  // Peripheral chains may extend at most two Zones beyond a Hub-facing Spoke (distance <=3 from Hub).
+  for(const id of ids)if(['HUB_SPOKE','PERIPHERAL'].includes(roles[id])&&(dHub[id]??Infinity)>3)return false;
+  const reachable=topologyDistancesV20(ids,encounter.edges,entry);if(ids.some(id=>!Number.isFinite(reachable[id])))return false;
+  if(requireLayout){if(!validateGridLayout(encounter)||!topologyGenericRenderableV20(encounter,encounter.layout))return false;}
+  return true;
 }
-function topoShortestPathAvoidingV20(ids,edges,start,goal,avoid=null){
-  return topoDistancesV20(ids,edges,start,avoid)[goal];
-}
-function topoGenericLayoutScoreV20(encounter,layout,mode){
-  let score=0;
-  for(const [a,b] of encounter.edges||[]){
-    const A=layout[a],B=layout[b];if(!A||!B)continue;
-    const cheb=Math.max(Math.abs(A.col-B.col),Math.abs(A.row-B.row));
-    score+=cheb===1?55:cheb===2?7:-24*cheb;
+
+
+/* ------------------------------ Fork v1 ------------------------------ */
+function forkRouteCountV1(n,rng){if(n<=5)return 2;if(n===6)return rng()<0.3?3:2;return rng()<0.5?3:2;}
+function buildForkGraphV1(n,rng){
+  const nodes=[],edges=[],seen=new Set(),nodeRoles={},operations=[];
+  const add=(id,role)=>{nodes.push({id,x:50,y:50});nodeRoles[id]=role;};
+  const edge=(a,b)=>{const k=topologyEdgeKeyV20(a,b);if(a!==b&&!seen.has(k)){seen.add(k);edges.push([a,b]);return true;}return false;};
+  const objective=`z${n-1}`;let next=0;
+  add('z0','CAMP');next=1;
+  const routeCount=forkRouteCountV1(n,rng);
+  // Camp may be the Fork Point; use an upstream approach only when budget allows.
+  const canApproach=n>=routeCount+4, campIsFork=!canApproach||rng()<0.38;
+  const sharedApproach=['z0'];let forkPoint='z0';
+  if(!campIsFork){
+    const maxExtra=Math.min(2,n-(routeCount+3));const approachCount=maxExtra>0&&rng()<0.35?2:1;
+    let prev='z0';
+    for(let i=0;i<approachCount;i++){const id=`z${next++}`;add(id,i===approachCount-1?'FORK_POINT':'SHARED_APPROACH');edge(prev,id);operations.push({op:'EXTEND_SHARED_APPROACH',from:prev,to:id});prev=id;sharedApproach.push(id);}
+    forkPoint=prev;
+  }else nodeRoles.z0='FORK_POINT';
+
+  // Reserve objective and seed one unique Zone per route.
+  const routes=[];
+  for(let i=0;i<routeCount;i++){
+    const id=`z${next++}`,rid=`r${i+1}`;add(id,'FORK_ROUTE');edge(forkPoint,id);routes.push({id:rid,zones:[id],endpoint:id});operations.push({op:'CREATE_ROUTE',routeId:rid,from:forkPoint,to:id});
   }
-  if(mode==='hub'){
-    const h=encounter.hubModel?.hubZone,c=layout[h];if(c)score-=18*(Math.abs(c.col-1)+Math.abs(c.row-1.5));
+  let budget=(n-1)-next;
+  let reconnectionStage={type:'OBJECTIVE',zoneId:objective,mergedRoutes:routes.map(r=>r.id)};
+  const canReconnect=budget>=1;
+  const reconnectRoll=rng();
+  const doPartial=routeCount===3&&canReconnect&&reconnectRoll<0.18;
+  const doFull=canReconnect&&!doPartial&&reconnectRoll<0.42;
+  const reserveReconnect=(doPartial||doFull)?1:0;
+  let extensionBudget=Math.max(0,budget-reserveReconnect);
+  while(extensionBudget>0){
+    const sorted=[...routes].sort((a,b)=>a.zones.length-b.zones.length||a.id.localeCompare(b.id));
+    const pick=(rng()<0.55?sorted[0]:routes[Math.floor(rng()*routes.length)]);
+    const id=`z${next++}`;add(id,'FORK_ROUTE');edge(pick.endpoint,id);operations.push({op:'EXTEND_ROUTE',routeId:pick.id,from:pick.endpoint,to:id});pick.endpoint=id;pick.zones.push(id);extensionBudget--;
   }
+  if(doFull){
+    const rid=`z${next++}`;add(rid,'RECONNECTION');routes.forEach(r=>edge(r.endpoint,rid));reconnectionStage={type:'FULL',zoneId:rid,mergedRoutes:routes.map(r=>r.id)};operations.push({op:'RECONNECT_ROUTES',type:'FULL',routes:routes.map(r=>r.id),to:rid});
+    add(objective,'OBJECTIVE');edge(rid,objective);
+  }else if(doPartial){
+    const rid=`z${next++}`;add(rid,'RECONNECTION');edge(routes[0].endpoint,rid);edge(routes[1].endpoint,rid);reconnectionStage={type:'PARTIAL',zoneId:rid,mergedRoutes:[routes[0].id,routes[1].id],remainingRoutes:[routes[2].id]};operations.push({op:'RECONNECT_ROUTES',type:'PARTIAL',routes:[routes[0].id,routes[1].id],to:rid});
+    add(objective,'OBJECTIVE');edge(rid,objective);edge(routes[2].endpoint,objective);
+  }else{
+    add(objective,'OBJECTIVE');routes.forEach(r=>edge(r.endpoint,objective));
+  }
+  operations.push({op:'CONNECT_OBJECTIVE',to:objective});
+  return {nodes,edges,forkModel:{standardVersion:'FORK_V1',forkPoint,sharedApproach,routes:routes.map(r=>({id:r.id,zones:[...r.zones]})),reconnectionStage,nodeRoles,operations}};
+}
+function forkStructuralReportV1(encounter){
+  const fail=(reason,detail='')=>({pass:false,status:'FAIL-STRUCTURE',reason,detail});
+  if(!encounter||(encounter.topologyProfile?.id||'').toUpperCase()!=='TOPO_FORK')return {pass:true,status:'PASS'};
+  const m=encounter.forkModel;if(!m||m.standardVersion!=='FORK_V1')return fail('FORK_POINT_COUNT');
+  const ids=encounter.zones.map(z=>z.zoneId),entry=encounter.entry?.zoneId,obj=encounter.zones.find(z=>z.structural?.objective)?.zoneId||ids[ids.length-1];
+  if(ids.filter(id=>id===entry).length!==1)return fail('CAMP_COUNT');if(!obj)return fail('OBJECTIVE_COUNT');
+  const fp=m.forkPoint;if(!fp||!ids.includes(fp))return fail('FORK_POINT_COUNT');
+  const roles=m.nodeRoles||{};
+  if(Object.values(roles).filter(r=>r==='FORK_POINT').length!==1||roles[fp]!=='FORK_POINT')return fail('FORK_POINT_COUNT');
+  if(Object.values(roles).filter(r=>r==='RECONNECTION').length>1)return fail('RECONNECTION_COUNT');
+  const routes=m.routes||[];if(routes.length<2||routes.length>3)return fail('ROUTE_COUNT');
+  const adj=topologyAdjacencyV20(ids,encounter.edges),routeNodes=new Map();
+  if(entry!==fp){
+    const app=m.sharedApproach||[];if(app[0]!==entry||app[app.length-1]!==fp)return fail('PRE_FORK_DIVERGENCE');
+    for(let i=1;i<app.length;i++)if(!(adj[app[i-1]]||[]).includes(app[i]))return fail('PRE_FORK_DIVERGENCE');
+    for(const id of app.slice(0,-1)){const expected=id===entry?1:2;if((adj[id]||[]).length!==expected)return fail('PRE_FORK_DIVERGENCE');}
+  }
+  if((adj[fp]||[]).filter(x=>routes.some(r=>(r.zones||[])[0]===x)).length!==routes.length)return fail('ROUTE_COUNT');
+  for(const r of routes){if(!r.id||!(r.zones||[]).length)return fail('ROUTE_DEPTH');for(const z of r.zones){if(routeNodes.has(z))return fail('SHARED_INTERMEDIATE_ZONE');routeNodes.set(z,r.id);}for(let i=1;i<r.zones.length;i++)if(!(adj[r.zones[i-1]]||[]).includes(r.zones[i]))return fail('INCOMPLETE_ROUTE');}
+  const rs=m.reconnectionStage||{type:'OBJECTIVE',zoneId:obj};
+  if(!['OBJECTIVE','FULL','PARTIAL'].includes(rs.type))return fail('RECONNECTION_COUNT');
+  if(rs.type==='PARTIAL'&&routes.length!==3)return fail('INVALID_PARTIAL_RECONNECTION');
+  // Cross-links / switching between independent route nodes are never legal.
+  for(const [a,b] of encounter.edges||[]){const ra=routeNodes.get(a),rb=routeNodes.get(b);if(ra&&rb&&ra!==rb)return fail('CROSS_LINK');}
+  for(const r of routes){const end=r.zones[r.zones.length-1],legalTargets=rs.type==='OBJECTIVE'?[obj]:rs.type==='FULL'?[rs.zoneId]:(rs.mergedRoutes||[]).includes(r.id)?[rs.zoneId]:[obj];if(!legalTargets.some(t=>(adj[end]||[]).includes(t)))return fail('INCOMPLETE_ROUTE');}
+  if(rs.type==='FULL'){if(!ids.includes(rs.zoneId)||(adj[rs.zoneId]||[]).indexOf(obj)<0)return fail('INCOMPLETE_ROUTE');}
+  if(rs.type==='PARTIAL'){if(!ids.includes(rs.zoneId)||(adj[rs.zoneId]||[]).indexOf(obj)<0)return fail('INVALID_PARTIAL_RECONNECTION');}
+  for(const id of ids)if(!['CAMP','SHARED_APPROACH','FORK_POINT','FORK_ROUTE','RECONNECTION','OBJECTIVE'].includes(roles[id]))return fail('INVALID_ROLE');
+  const reach=topologyDistancesV20(ids,encounter.edges,entry);if(ids.some(id=>!Number.isFinite(reach[id])))return fail('ORPHAN_ZONE');
+  // Degree-based secondary Fork check outside the Primary Fork/Reconnection/Objective.
+  for(const id of ids){if(id===fp||id===obj||id===rs.zoneId)continue;const role=roles[id];if(role==='FORK_ROUTE'&&(adj[id]||[]).filter(x=>routeNodes.get(x)===routeNodes.get(id)||x===fp||x===obj||x===rs.zoneId).length>2)return fail('SECONDARY_FORK');}
+  return {pass:true,status:'PASS-STRUCTURE'};
+}
+function validateForkEncounterV1(encounter,{requireLayout=true}={}){const r=forkStructuralReportV1(encounter);if(!r.pass)return false;if(requireLayout){if(!validateGridLayout(encounter)||!topologyGenericRenderableV20(encounter,encounter.layout))return false;}return true;}
+function forkRoutePressureProfileV1(encounter,route){
+  const zones=(route.zones||[]).map(id=>encounter.zones.find(z=>z.zoneId===id)).filter(Boolean),len=zones.length;
+  const traversal=len<=1?'Short':len<=2?'Medium':'Long';
+  let terrain=0,positional=0,enemy=0;
+  for(const z of zones){if(z.terrain?.difficult||z.difficult)terrain++;if(z.terrain?.hazardous||z.hazardous)terrain+=2;const f=z.features||[];if((z.capacityPerSide??z.cap??3)<=1)positional+=2;if(f.includes('WATCHTOWER')||f.includes('HIGH_GROUND'))positional++;if(z.enemyPressure==='HIGH')enemy+=2;else if(z.enemyPressure==='MODERATE')enemy++;}
+  const cat=v=>v<=0?'Low':v===1?'Moderate':'High';return {routeId:route.id,length:len,traversal,terrain:cat(terrain),positional:cat(positional),enemy:cat(enemy),raw:{terrain,positional,enemy}};
+}
+function forkQualityReportV1(encounter){
+  if(!encounter||(encounter.topologyProfile?.id||'').toUpperCase()!=='TOPO_FORK')return {pass:true,status:'PASS-QUALITY'};
+  if(!forkStructuralReportV1(encounter).pass)return {pass:false,status:'FAIL-QUALITY',primary:'STRUCTURE_REQUIRED'};
+  const profiles=(encounter.forkModel.routes||[]).map(r=>forkRoutePressureProfileV1(encounter,r));
+  const rank=v=>v==='High'?2:v==='Moderate'?1:0;
+  let dominance=null,shortFail=null;
+  for(let i=0;i<profiles.length;i++)for(let j=0;j<profiles.length;j++)if(i!==j){
+    const a=profiles[i],b=profiles[j];if(a.length>=b.length)continue;
+    const ar=[rank(a.terrain),rank(a.positional),rank(a.enemy)],br=[rank(b.terrain),rank(b.positional),rank(b.enemy)];
+    const compensated=ar.some((v,k)=>v>br[k]);
+    if(!compensated){
+      shortFail=shortFail||a;
+      const noHarder=ar.every((v,k)=>v<=br[k]),strictlyEasier=ar.some((v,k)=>v<br[k]);
+      if(noHarder&&strictlyEasier)dominance=dominance||a;
+    }
+  }
+  if(dominance)return {pass:false,status:'FAIL-QUALITY',primary:'ROUTE_DOMINANCE',secondary:'UNCOMPENSATED_SHORT_ROUTE',profiles};
+  if(shortFail)return {pass:false,status:'FAIL-QUALITY',primary:'UNCOMPENSATED_SHORT_ROUTE',profiles};
+  if(profiles.length>=2){const sig=p=>`${p.length}|${p.raw.terrain}|${p.raw.positional}|${p.raw.enemy}`;if(new Set(profiles.map(sig)).size===1)return {pass:false,status:'FAIL-QUALITY',primary:'INSUFFICIENT_ROUTE_DIFFERENTIATION',profiles};}
+  return {pass:true,status:'PASS-QUALITY',profiles};
+}
+function validateForkQualityV1(encounter){return forkQualityReportV1(encounter).pass;}
+function repairForkQualityV1(encounter){
+  if((encounter?.topologyProfile?.id||'').toUpperCase()!=='TOPO_FORK'||!encounter.forkModel)return encounter;
+  const routes=encounter.forkModel.routes||[];
+  const pressureUp=(route,level=1)=>{
+    const z=encounter.zones.find(x=>x.zoneId===route?.zones?.[0]);if(!z)return;
+    z.terrain=z.terrain||{};z.tags=z.tags||[];z.features=z.features||[];
+    z.terrain.difficult=true;z.difficult=true;if(!z.tags.includes('DIFFICULT'))z.tags.push('DIFFICULT');
+    if(level>=2){z.terrain.hazardous=true;z.hazardous=true;if(!z.tags.includes('HAZARDOUS'))z.tags.push('HAZARDOUS');}
+    if(level>=3){z.capacityPerSide=1;if(!z.features.includes('HIGH_GROUND'))z.features.push('HIGH_GROUND');if(!z.tags.includes('HIGH_GROUND'))z.tags.push('HIGH_GROUND');}
+  };
+  const soften=(route)=>{
+    const z=encounter.zones.find(x=>x.zoneId===route?.zones?.[0]);if(!z)return;
+    z.terrain=z.terrain||{};z.tags=z.tags||[];z.features=z.features||[];
+    if(z.terrain.hazardous||z.hazardous){z.terrain.hazardous=false;z.hazardous=false;z.tags=z.tags.filter(t=>t!=='HAZARDOUS');return;}
+    if(z.features.includes('WATCHTOWER')||z.features.includes('HIGH_GROUND')){z.features=z.features.filter(f=>!['WATCHTOWER','HIGH_GROUND'].includes(f));z.tags=z.tags.filter(t=>!['WATCHTOWER','HIGH_GROUND'].includes(t));if(z.capacityPerSide===1)z.capacityPerSide=2;return;}
+    if(z.terrain.difficult||z.difficult){z.terrain.difficult=false;z.difficult=false;z.tags=z.tags.filter(t=>t!=='DIFFICULT');}
+  };
+  for(let pass=1;pass<=3;pass++){
+    const report=forkQualityReportV1(encounter);if(report.pass)return encounter;
+    if(report.primary==='INSUFFICIENT_ROUTE_DIFFERENTIATION'){pressureUp(routes[0],1);continue;}
+    const profiles=report.profiles||[],maxLen=Math.max(...profiles.map(p=>p.length));
+    profiles.filter(p=>p.length<maxLen).sort((a,b)=>a.length-b.length).forEach(p=>pressureUp(routes.find(r=>r.id===p.routeId),pass));
+  }
+  // If a shorter route is already at maximum practical route pressure but a longer route is equally
+  // pressured, soften the longer route's first pressure source rather than accept a dominated choice.
+  for(let guard=0;guard<6;guard++){
+    const report=forkQualityReportV1(encounter);if(report.pass)return encounter;
+    const profiles=report.profiles||[];let changed=false;
+    for(const a of profiles){for(const b of profiles){if(a.length>=b.length)continue;const ar=[a.terrain,a.positional,a.enemy],br=[b.terrain,b.positional,b.enemy],rank=v=>v==='High'?2:v==='Moderate'?1:0;if(!ar.some((v,k)=>rank(v)>rank(br[k]))){soften(routes.find(r=>r.id===b.routeId));changed=true;break;}}if(changed)break;}
+    if(!changed)break;
+  }
+  return encounter;
+}
+
+
+/* ------------------------------ v20 placement search ------------------------------ */
+function topologyLayoutScoreV20(encounter,layout,kind){
+  let score=0;const roles=(encounter[`${kind}Model`]?.nodeRoles)||{};
+  for(const [a,b] of encounter.edges||[]){const A=layout[a],B=layout[b],cheb=Math.max(Math.abs(A.col-B.col),Math.abs(A.row-B.row));score+=cheb===1?52:cheb===2?8:-22*cheb;}
+  for(const [id,role] of Object.entries(roles)){const c=layout[id];if(!c)continue;if(role==='HUB')score-=16*(Math.abs(c.col-1)+Math.abs(c.row-1.5));if(role==='FORK_POINT'||role==='RECONNECTION')score-=7*Math.abs(c.col-1);if(role==='SIDE')score+=3*(c.col===0||c.col===2);}
   return score;
 }
-function searchFormalTopologyGridLayoutV20(encounter,rng,mode){
-  const ids=encounter.zones.map(z=>z.zoneId),cells=allGridCells(),entry=encounter.entry?.zoneId;
-  const obj=encounter.zones.find(z=>z.structural?.objective)?.zoneId||ids[ids.length-1];
-  const degree=Object.fromEntries(ids.map(id=>[id,0]));for(const [a,b] of encounter.edges||[]){degree[a]++;degree[b]++;}
-  const candidates=[];
-  if(mode==='hub'){
-    const hub=encounter.hubModel?.hubZone;
-    for(const hc of cells.filter(c=>c.col===1&&[1,2].includes(c.row))){
-      for(const ec of cells.filter(c=>c.edge&&gridCellKey(c.col,c.row)!==gridCellKey(hc.col,hc.row))){
-        for(const oc of cells.filter(c=>c.edge&&gridCellKey(c.col,c.row)!==gridCellKey(hc.col,hc.row)&&gridCellKey(c.col,c.row)!==gridCellKey(ec.col,ec.row))){
-          candidates.push({fixed:{[hub]:hc,[entry]:ec,[obj]:oc}});
-        }
-      }
-    }
-  }else{
-    const pairs=[
-      [{col:1,row:3},{col:1,row:0}],[{col:0,row:3},{col:2,row:0}],[{col:2,row:3},{col:0,row:0}],
-      [{col:0,row:3},{col:1,row:0}],[{col:2,row:3},{col:1,row:0}]
-    ];
-    const at=p=>cells.find(c=>c.col===p.col&&c.row===p.row);
-    for(const [a,b] of pairs)candidates.push({fixed:{[entry]:at(a),[obj]:at(b)}});
-  }
-  let best=null;
-  for(const spec of candidates){
-    const fixed=spec.fixed;if(Object.values(fixed).some(v=>!v))continue;
-    const used0=new Set(Object.values(fixed).map(c=>gridCellKey(c.col,c.row)));if(used0.size!==Object.keys(fixed).length)continue;
-    const fixedIds=new Set(Object.keys(fixed));
-    const d=topoDistancesV20(ids,encounter.edges,entry);
-    const order=ids.filter(id=>!fixedIds.has(id)).sort((a,b)=>(degree[b]-degree[a])||(d[a]-d[b])||a.localeCompare(b));
-    let beam=[{layout:{...fixed},used:used0,score:0}];
-    for(const id of order){
-      const next=[];
-      for(const st of beam){
-        for(const cell of cells){
-          const key=gridCellKey(cell.col,cell.row);if(st.used.has(key))continue;
-          let inc=0;
-          for(const [a,b] of encounter.edges||[]){
-            const nb=a===id?b:b===id?a:null;if(!nb||!st.layout[nb])continue;
-            const n=st.layout[nb],cheb=Math.max(Math.abs(cell.col-n.col),Math.abs(cell.row-n.row));
-            inc+=cheb===1?42:cheb===2?4:-16*cheb;
-          }
-          if(mode==='gauntlet'){
-            const idx=encounter.gauntletModel?.spine?.indexOf(id)??-1;
-            if(idx>=0)inc-=3*Math.abs(cell.col-1);
-          }else if(mode==='fork'){
-            const routes=encounter.forkModel?.routes||[];
-            const ri=routes.findIndex(r=>(r.zones||[]).includes(id));
-            if(ri>=0){const target=routes.length===2?(ri===0?0:2):ri;inc-=7*Math.abs(cell.col-target);}
-          }else if(mode==='hub'){
-            const h=encounter.hubModel?.hubZone,hc=st.layout[h];
-            if(hc&&encounter.hubModel?.spokes?.includes(id)){
-              const cheb=Math.max(Math.abs(cell.col-hc.col),Math.abs(cell.row-hc.row));inc+=cheb===1?35:-12*cheb;
-            }
-          }
-          const layout={...st.layout,[id]:cell},used=new Set(st.used);used.add(key);next.push({layout,used,score:st.score+inc});
-        }
-      }
-      next.sort((a,b)=>b.score-a.score);beam=next.slice(0,500);if(!beam.length)break;
-    }
-    for(const st of beam.slice(0,180)){
-      if(!validateConvergenceLayoutRenderableV1(encounter,st.layout))continue;
-      const s=st.score+topoGenericLayoutScoreV20(encounter,st.layout,mode);
-      if(!best||s>best.score)best={layout:st.layout,score:s};
-    }
+function searchTopologyGridLayoutV20(encounter,rng,kind){
+  const ids=encounter.zones.map(z=>z.zoneId),entry=encounter.entry?.zoneId,obj=encounter.zones.find(z=>z.structural?.objective)?.zoneId||ids[ids.length-1],cells=allGridCells();
+  const internal=ids.filter(id=>id!==entry&&id!==obj),d=topologyDistancesV20(ids,encounter.edges,entry),degree=Object.fromEntries(ids.map(id=>[id,0]));(encounter.edges||[]).forEach(([a,b])=>{degree[a]++;degree[b]++;});
+  const pairs=[[{col:1,row:3},{col:1,row:0}],[{col:0,row:3},{col:2,row:0}],[{col:2,row:3},{col:0,row:0}],[{col:0,row:3},{col:1,row:0}],[{col:2,row:3},{col:1,row:0}],[{col:1,row:3},{col:0,row:0}],[{col:1,row:3},{col:2,row:0}]];
+  const cellAt=p=>cells.find(c=>c.col===p.col&&c.row===p.row);let best=null;
+  for(const [ss,oo] of pairs){const start=cellAt(ss),goal=cellAt(oo);if(!start||!goal)continue;const fixed={[entry]:start,[obj]:goal};const order=[...internal].sort((a,b)=>(degree[b]-degree[a])||(d[a]-d[b])||a.localeCompare(b));let beam=[{layout:fixed,used:new Set([gridCellKey(start.col,start.row),gridCellKey(goal.col,goal.row)]),score:0}];
+    for(const id of order){const next=[];for(const st of beam){for(const cell of cells){const key=gridCellKey(cell.col,cell.row);if(st.used.has(key))continue;let inc=0;for(const [a,b] of encounter.edges||[]){const nb=a===id?b:b===id?a:null;if(!nb||!st.layout[nb])continue;const n=st.layout[nb],cheb=Math.max(Math.abs(cell.col-n.col),Math.abs(cell.row-n.row));inc+=cheb===1?36:cheb===2?5:-14*cheb;}const role=encounter[`${kind}Model`]?.nodeRoles?.[id];if(role==='HUB')inc-=18*(Math.abs(cell.col-1)+Math.abs(cell.row-1.5));if(role==='FORK_POINT'||role==='RECONNECTION')inc-=6*Math.abs(cell.col-1);const layout={...st.layout,[id]:cell},used=new Set(st.used);used.add(key);next.push({layout,used,score:st.score+inc});}}next.sort((a,b)=>b.score-a.score);beam=next.slice(0,220);if(!beam.length)break;}
+    for(const st of beam.slice(0,80)){if(!topologyGenericRenderableV20(encounter,st.layout))continue;const sc=st.score+topologyLayoutScoreV20(encounter,st.layout,kind);if(!best||sc>best.score)best={layout:st.layout,score:sc};}
   }
   return best?.layout||null;
 }
+function searchGauntletGridLayoutV1(e,r){return searchTopologyGridLayoutV20(e,r,'gauntlet');}
+function searchHubGridLayoutV1(e,r){return searchTopologyGridLayoutV20(e,r,'hub');}
+function searchForkGridLayoutV1(e,r){return searchTopologyGridLayoutV20(e,r,'fork');}
 
-/* ---------- GAUNTLET v1 ---------- */
-function buildGauntletGraphV1(n,rng){
-  n=Math.max(5,n|0);
-  const objective=`z${n-1}`,nodes=[],edges=[],nodeRoles={},sideZones=[];
-  const add=(id,role)=>{nodes.push({id,x:50,y:50});nodeRoles[id]=role;};
-  add('z0','CAMP');
-  const maxSide=Math.min(2,n-4);
-  let sideCount=0;
-  if(maxSide>0){
-    const r=rng();sideCount=n<=5?0:n===6?(r<.35?1:0):n===7?(r<.48?1:0):(r<.25?0:r<.72?1:2);
-    sideCount=Math.min(maxSide,sideCount);
-  }
-  const spineInternal=n-2-sideCount,spine=['z0'];let next=1;
-  for(let i=0;i<spineInternal;i++){const id=`z${next++}`;add(id,'SPINE');spine.push(id);}
-  add(objective,'OBJECTIVE');spine.push(objective);
-  for(let i=1;i<spine.length;i++)edges.push([spine[i-1],spine[i]]);
-  const eligible=spine.slice(1,-1),hosts=[...eligible];
-  for(let i=0;i<sideCount;i++){
-    const id=`z${next++}`,pick=Math.floor(rng()*hosts.length),host=hosts.splice(pick,1)[0];
-    add(id,'SIDE');edges.push([host,id]);sideZones.push({zoneId:id,hostSpineZone:host});
-  }
-  nodes.sort((a,b)=>Number(a.id.slice(1))-Number(b.id.slice(1)));
-  return {nodes,edges,gauntletModel:{standardVersion:'GAUNTLET_V1',spine,spineZones:spine.slice(1,-1),sideZones,nodeRoles}};
-}
-function validateGauntletEncounterV1(encounter,{requireLayout=true}={}){
-  if((encounter?.topologyProfile?.id||'').toUpperCase()!=='TOPO_GAUNTLET')return true;
-  const m=encounter.gauntletModel;if(!m||m.standardVersion!=='GAUNTLET_V1')return false;
-  const ids=encounter.zones.map(z=>z.zoneId),camp=encounter.entry?.zoneId,obj=encounter.zones.find(z=>z.structural?.objective)?.zoneId||ids[ids.length-1];
-  if(m.spine?.[0]!==camp||m.spine?.[m.spine.length-1]!==obj||m.spine.length<4)return false;
-  const adj=topoAdjV20(ids,encounter.edges);
-  if((adj[camp]||[]).length!==1||(adj[obj]||[]).length!==1)return false;
-  for(let i=1;i<m.spine.length;i++)if(!(adj[m.spine[i-1]]||[]).includes(m.spine[i]))return false;
-  for(let i=0;i<m.spine.length;i++)for(let j=i+2;j<m.spine.length;j++)if((adj[m.spine[i]]||[]).includes(m.spine[j]))return false;
-  for(const s of m.spine.slice(1,-1))if(Number.isFinite(topoShortestPathAvoidingV20(ids,encounter.edges,camp,obj,s)))return false;
-  if((m.sideZones||[]).length>2)return false;
-  const hostCounts={};
-  for(const s of m.sideZones||[]){
-    if((adj[s.zoneId]||[]).length!==1||(adj[s.zoneId]||[])[0]!==s.hostSpineZone||!m.spineZones.includes(s.hostSpineZone))return false;
-    hostCounts[s.hostSpineZone]=(hostCounts[s.hostSpineZone]||0)+1;if(hostCounts[s.hostSpineZone]>1)return false;
-  }
-  if(ids.some(id=>!m.nodeRoles?.[id]||!Number.isFinite(topoDistancesV20(ids,encounter.edges,camp)[id])))return false;
-  if(requireLayout){if(!validateGridLayout(encounter)||!validateConvergenceLayoutRenderableV1(encounter,encounter.layout))return false;}
-  return true;
-}
-function searchGauntletGridLayoutV1(encounter,rng){return searchFormalTopologyGridLayoutV20(encounter,rng,'gauntlet');}
-
-/* ---------- HUB v1 ---------- */
-function buildHubGraphV1(n,rng){
-  n=Math.max(5,n|0);
-  const nodes=[],edges=[],nodeRoles={},regions=[],peripheralLinks=[],hub='z1',objective=`z${n-1}`;
-  const add=(id,role)=>{if(!nodes.some(x=>x.id===id))nodes.push({id,x:50,y:50});nodeRoles[id]=role;};
-  add('z0','CAMP');add(hub,'HUB');add(objective,'OBJECTIVE');
-  const internal=[];for(let i=2;i<n-1;i++)internal.push(`z${i}`);
-  let degree=n>=8?4:3;degree=Math.min(5,degree,n-2);
-  const otherCount=degree-2;
-  const otherStarts=internal.splice(0,otherCount);
-  edges.push(['z0',hub]);regions.push({id:'R_CAMP',spoke:'z0',zones:['z0'],role:'CAMP_APPROACH'});
-  let objSpoke=objective;
-  if(internal.length){
-    objSpoke=internal.shift();add(objSpoke,'SPOKE');edges.push([hub,objSpoke],[objSpoke,objective]);
-    regions.push({id:'R_OBJECTIVE',spoke:objSpoke,zones:[objSpoke,objective],role:'OBJECTIVE_APPROACH'});
-  }else{
-    edges.push([hub,objective]);regions.push({id:'R_OBJECTIVE',spoke:objective,zones:[objective],role:'OBJECTIVE_APPROACH'});
-  }
-  otherStarts.forEach((s,i)=>{add(s,'SPOKE');edges.push([hub,s]);regions.push({id:`R${i+1}`,spoke:s,zones:[s],role:'TERMINAL'});});
-  let ri=0;
-  while(internal.length){
-    const id=internal.shift();add(id,'PERIPHERAL_CHAIN');
-    const candidates=regions.filter(r=>r.role!=='CAMP_APPROACH' && r.zones.filter(z=>z!==objective).length<3);
-    const r=candidates[ri++%Math.max(1,candidates.length)]||regions.find(x=>x.role==='TERMINAL')||regions[1];
-    const pathZones=r.zones.filter(z=>z!==objective),tail=pathZones[pathZones.length-1];
-    if(r.role==='OBJECTIVE_APPROACH'){
-      const oi=edges.findIndex(([a,b])=>(a===tail&&b===objective)||(a===objective&&b===tail));if(oi>=0)edges.splice(oi,1);
-      edges.push([tail,id],[id,objective]);r.zones.splice(r.zones.length-1,0,id);
-    }else{edges.push([tail,id]);r.zones.push(id);}
-  }
-  for(let i=0;i<n;i++){const id=`z${i}`;if(!nodes.some(x=>x.id===id))add(id,nodeRoles[id]||'SPOKE');}
-  nodes.sort((a,b)=>Number(a.id.slice(1))-Number(b.id.slice(1)));
-  const spokes=edges.filter(([a,b])=>a===hub||b===hub).map(([a,b])=>a===hub?b:a);
-  const model={standardVersion:'HUB_V1',hubZone:hub,spokes,regions,peripheralLinks,nodeRoles};
-
-  // LINK_PERIPHERY: 0–2 local non-Hub links. Never force a link; keep only links
-  // that preserve all locked Hub structural rules.
-  const desired=n>=9?(rng()<0.30?2:rng()<0.70?1:0):n>=7?(rng()<0.45?1:0):0;
-  if(desired){
-    const zoneRegion={};for(const r of regions)for(const z of r.zones)zoneRegion[z]=r.id;
-    const candidates=[];
-    const peripheral=nodes.map(x=>x.id).filter(id=>![hub,'z0',objective].includes(id));
-    for(let i=0;i<peripheral.length;i++)for(let j=i+1;j<peripheral.length;j++){
-      const a=peripheral[i],b=peripheral[j];
-      if(zoneRegion[a]===zoneRegion[b])continue;
-      if(edges.some(([x,y])=>(x===a&&y===b)||(x===b&&y===a)))continue;
-      candidates.push([a,b]);
-    }
-    for(let i=candidates.length-1;i>0;i--){const j=Math.floor(rng()*(i+1));[candidates[i],candidates[j]]=[candidates[j],candidates[i]];}
-    for(const [a,b] of candidates){
-      if(peripheralLinks.length>=desired)break;
-      edges.push([a,b]);peripheralLinks.push([a,b]);
-      const trial={nodes,edges,hubModel:model};
-      const e=formalEncounterV20('hub',trial);
-      if(!validateHubEncounterV1(e,{requireLayout:false})){edges.pop();peripheralLinks.pop();}
-    }
-  }
-  return {nodes,edges,hubModel:model};
-}
-function validateHubEncounterV1(encounter,{requireLayout=true}={}){
-  if((encounter?.topologyProfile?.id||'').toUpperCase()!=='TOPO_HUB')return true;
-  const m=encounter.hubModel;if(!m||m.standardVersion!=='HUB_V1')return false;
-  const ids=encounter.zones.map(z=>z.zoneId),camp=encounter.entry?.zoneId,obj=encounter.zones.find(z=>z.structural?.objective)?.zoneId||ids[ids.length-1],hub=m.hubZone;
-  if(!ids.includes(hub)||hub===camp||hub===obj)return false;
-  const adj=topoAdjV20(ids,encounter.edges),hd=(adj[hub]||[]).length;if(hd<3||hd>5)return false;
-  if((adj[camp]||[]).includes(obj))return false;
-  const d=topoShortestPathAvoidingV20(ids,encounter.edges,camp,obj,null),avoid=topoShortestPathAvoidingV20(ids,encounter.edges,camp,obj,hub);
-  if(!Number.isFinite(d)||(Number.isFinite(avoid)&&avoid<=d))return false;
-  if(topoComponentsWithoutV20(ids,encounter.edges,hub)<2)return false;
-  if((m.peripheralLinks||[]).length>2)return false;
-  const edgeSet=new Set((encounter.edges||[]).map(([a,b])=>topoEdgeKeyV20(a,b)));
-  for(const [a,b] of m.peripheralLinks||[]){
-    if(a===hub||b===hub||!ids.includes(a)||!ids.includes(b)||!edgeSet.has(topoEdgeKeyV20(a,b)))return false;
-  }
-  for(const id of ids.filter(x=>x!==hub)){const deg=(adj[id]||[]).length;if(deg>3||deg>=hd)return false;}
-  // Region chains may extend no more than two Zones beyond the Hub-facing Spoke.
-  for(const r of m.regions||[]){
-    const path=(r.zones||[]).filter(z=>z!==camp&&z!==obj);
-    if(path.length>3)return false;
-  }
-  // Direct Spokes must remain distinct before optional Peripheral Links; no duplicate spoke ownership.
-  const spokeOwners={};for(const r of m.regions||[]){if(r.spoke){if(spokeOwners[r.spoke])return false;spokeOwners[r.spoke]=r.id;}}
-  if((m.spokes||[]).some(s=>!ids.includes(s)||(adj[hub]||[]).includes(s)===false))return false;
-  if(ids.some(id=>!m.nodeRoles?.[id]||!Number.isFinite(topoDistancesV20(ids,encounter.edges,camp)[id])))return false;
-  if(requireLayout){if(!validateGridLayout(encounter)||!validateConvergenceLayoutRenderableV1(encounter,encounter.layout))return false;}
-  return true;
-}
-function searchHubGridLayoutV1(encounter,rng){return searchFormalTopologyGridLayoutV20(encounter,rng,'hub');}
-
-/* ---------- FORK v1 ---------- */
-function buildForkGraphV1(n,rng){
-  n=Math.max(5,n|0);
-  const objective=`z${n-1}`,nodes=[],edges=[],nodeRoles={},routes=[];
-  const add=(id,role)=>{nodes.push({id,x:50,y:50});nodeRoles[id]=role;};
-  add('z0','CAMP');
-  let next=1,sharedApproach=['z0'],forkPoint='z0';
-  const useApproach=n>=7&&rng()<0.30;
-  if(useApproach){forkPoint=`z${next++}`;add(forkPoint,'FORK_POINT');edges.push(['z0',forkPoint]);sharedApproach.push(forkPoint);}
-  else nodeRoles['z0']='CAMP_FORK_POINT';
-
-  let available=n-next-1;
-  let routeCount=available>=3&&(n>=6&&rng()<0.58)?3:2;routeCount=Math.min(3,routeCount,available);
-  let reconnectionType='OBJECTIVE';
-  if(available>=routeCount+1){
-    const r=rng();
-    if(routeCount===3&&r<0.28)reconnectionType='PARTIAL';
-    else if(r<0.52)reconnectionType='INTERMEDIATE';
-  }
-  const reserveReconnect=reconnectionType==='OBJECTIVE'?0:1;
-  const routeBudget=available-reserveReconnect;
-  const routeLens=Array(routeCount).fill(1),extra=routeBudget-routeCount;
-  for(let i=0;i<extra;i++)routeLens[Math.floor(rng()*routeCount)]++;
-
-  for(let r=0;r<routeCount;r++){
-    const rid=`R${r+1}`,zones=[];let prev=forkPoint;
-    for(let j=0;j<routeLens[r];j++){const id=`z${next++}`;add(id,'FORK_ROUTE');edges.push([prev,id]);zones.push(id);prev=id;}
-    routes.push({id:rid,zones,endpoint:prev,status:'ACTIVE'});
-  }
-
-  let reconnectionStage;
-  if(reconnectionType==='OBJECTIVE'){
-    for(const r of routes){edges.push([r.endpoint,objective]);r.status='OBJECTIVE_BOUND';}
-    reconnectionStage={type:'OBJECTIVE',zoneId:objective};
-  }else{
-    const reconnect=`z${next++}`;add(reconnect,'RECONNECTION');
-    if(reconnectionType==='INTERMEDIATE'){
-      for(const r of routes){edges.push([r.endpoint,reconnect]);r.status='RECONNECTED';}
-      edges.push([reconnect,objective]);
-      reconnectionStage={type:'INTERMEDIATE',zoneId:reconnect,mergedRoutes:routes.map(r=>r.id),finalZoneId:objective};
-    }else{
-      const merged=routes.slice(0,2),remaining=routes.slice(2);
-      for(const r of merged){edges.push([r.endpoint,reconnect]);r.status='RECONNECTED';}
-      edges.push([reconnect,objective]);
-      for(const r of remaining){edges.push([r.endpoint,objective]);r.status='OBJECTIVE_BOUND';}
-      reconnectionStage={type:'PARTIAL',zoneId:reconnect,mergedRoutes:merged.map(r=>r.id),remainingRoutes:remaining.map(r=>r.id),finalZoneId:objective};
-    }
-  }
-  add(objective,'OBJECTIVE');
-  nodes.sort((a,b)=>Number(a.id.slice(1))-Number(b.id.slice(1)));
-  return {nodes,edges,forkModel:{standardVersion:'FORK_V1',forkPoint,sharedApproach,routes,reconnectionStage,nodeRoles}};
-}
-function validateForkEncounterV1(encounter,{requireLayout=true}={}){
-  if((encounter?.topologyProfile?.id||'').toUpperCase()!=='TOPO_FORK')return true;
-  const m=encounter.forkModel;if(!m||m.standardVersion!=='FORK_V1')return false;
-  const ids=encounter.zones.map(z=>z.zoneId),camp=encounter.entry?.zoneId,obj=encounter.zones.find(z=>z.structural?.objective)?.zoneId||ids[ids.length-1],fp=m.forkPoint;
-  if(!ids.includes(fp)||!Array.isArray(m.routes)||m.routes.length<2||m.routes.length>3)return false;
-  const adj=topoAdjV20(ids,encounter.edges),membership={},allowed=new Set(),expect=(a,b)=>allowed.add(topoEdgeKeyV20(a,b));
-  if((m.sharedApproach||[])[0]!==camp||(m.sharedApproach||[])[m.sharedApproach.length-1]!==fp)return false;
-  for(let i=1;i<m.sharedApproach.length;i++){if(!(adj[m.sharedApproach[i-1]]||[]).includes(m.sharedApproach[i]))return false;expect(m.sharedApproach[i-1],m.sharedApproach[i]);}
-
-  for(const r of m.routes){
-    if(!(r.zones||[]).length)return false;
-    let prev=fp;
-    for(const z of r.zones){
-      if(!ids.includes(z)||z===fp||z===obj)return false;
-      if(membership[z]&&membership[z]!==r.id)return false;membership[z]=r.id;
-      if(!(adj[prev]||[]).includes(z))return false;expect(prev,z);prev=z;
-    }
-    if(r.endpoint!==prev)return false;
-  }
-
-  const stage=m.reconnectionStage;if(!stage)return false;
-  const byId=Object.fromEntries(m.routes.map(r=>[r.id,r]));
-  if(stage.type==='OBJECTIVE'){
-    if(stage.zoneId!==obj)return false;
-    for(const r of m.routes){if(!(adj[r.endpoint]||[]).includes(obj))return false;expect(r.endpoint,obj);}
-  }else if(stage.type==='INTERMEDIATE'){
-    const rz=stage.zoneId;if(!ids.includes(rz)||m.nodeRoles?.[rz]!=='RECONNECTION'||rz===fp||rz===obj)return false;
-    const merged=stage.mergedRoutes||[];if(merged.length!==m.routes.length||new Set(merged).size!==m.routes.length)return false;
-    for(const rid of merged){const r=byId[rid];if(!r||(adj[r.endpoint]||[]).includes(rz)===false)return false;expect(r.endpoint,rz);}
-    if(!(adj[rz]||[]).includes(obj))return false;expect(rz,obj);
-  }else if(stage.type==='PARTIAL'){
-    if(m.routes.length!==3)return false;
-    const rz=stage.zoneId;if(!ids.includes(rz)||m.nodeRoles?.[rz]!=='RECONNECTION'||rz===fp||rz===obj)return false;
-    const merged=stage.mergedRoutes||[],remaining=stage.remainingRoutes||[];
-    if(merged.length!==2||remaining.length!==1||new Set([...merged,...remaining]).size!==3)return false;
-    if([...merged,...remaining].some(rid=>!byId[rid]))return false;
-    for(const rid of merged){const r=byId[rid];if(!(adj[r.endpoint]||[]).includes(rz))return false;expect(r.endpoint,rz);}
-    if(!(adj[rz]||[]).includes(obj))return false;expect(rz,obj);
-    for(const rid of remaining){const r=byId[rid];if(!(adj[r.endpoint]||[]).includes(obj))return false;expect(r.endpoint,obj);}
-  }else return false;
-
-  // The canonical Fork graph may contain only the model-authorized progression edges.
-  // This simultaneously rejects cross-links, route switching, secondary forks, side zones,
-  // reconnect-then-split structures, and multiple reconnection stages.
-  const actual=new Set((encounter.edges||[]).map(([a,b])=>topoEdgeKeyV20(a,b)));
-  if(actual.size!==allowed.size||[...actual].some(k=>!allowed.has(k)))return false;
-  if(ids.some(id=>!m.nodeRoles?.[id]||!Number.isFinite(topoDistancesV20(ids,encounter.edges,camp)[id])))return false;
-  if(requireLayout){if(!validateGridLayout(encounter)||!validateConvergenceLayoutRenderableV1(encounter,encounter.layout))return false;}
-  return true;
-}
-function searchForkGridLayoutV1(encounter,rng){return searchFormalTopologyGridLayoutV20(encounter,rng,'fork');}
-
-/* ---------- v20 fixture/stress validators ---------- */
-function formalEncounterV20(topology,graph){
-  const zones=graph.nodes.map((x,i)=>({zoneId:x.id,structural:{entry:i===0,objective:i===graph.nodes.length-1}}));
-  return {topologyProfile:{id:`TOPO_${topology.toUpperCase()}`},entry:{zoneId:'z0'},zones,edges:graph.edges,
-    ...(graph.gauntletModel?{gauntletModel:structuredClone(graph.gauntletModel)}:{}),
-    ...(graph.hubModel?{hubModel:structuredClone(graph.hubModel)}:{}),
-    ...(graph.forkModel?{forkModel:structuredClone(graph.forkModel)}:{})};
-}
-function validateGauntletGenerationV1V20(){
-  for(let n=5;n<=9;n++)for(let i=0;i<30;i++){const g=buildGauntletGraphV1(n,zeRng(`g20-${n}-${i}`)),e=formalEncounterV20('gauntlet',g);if(!validateGauntletEncounterV1(e,{requireLayout:false}))return false;}
-  return true;
-}
-function validateHubGenerationV1V20(){
-  for(let n=5;n<=9;n++)for(let i=0;i<30;i++){const g=buildHubGraphV1(n,zeRng(`h20-${n}-${i}`)),e=formalEncounterV20('hub',g);if(!validateHubEncounterV1(e,{requireLayout:false}))return false;}
-  return true;
-}
-function validateForkGenerationV1V20(){
-  for(let n=5;n<=9;n++)for(let i=0;i<30;i++){const g=buildForkGraphV1(n,zeRng(`f20-${n}-${i}`)),e=formalEncounterV20('fork',g);if(!validateForkEncounterV1(e,{requireLayout:false}))return false;}
-  return true;
-}
-function validateGauntletPlacementV20(){
-  for(let n=5;n<=9;n++)for(let i=0;i<8;i++){const g=buildGauntletGraphV1(n,zeRng(`gp20-${n}-${i}`)),e=formalEncounterV20('gauntlet',g),l=searchGauntletGridLayoutV1(e,zeRng(`gpl20-${n}-${i}`));if(!l)return false;e.layout=l;e.grid={cols:3,rows:4};if(!validateConvergenceLayoutRenderableV1(e,l))return false;}return true;
-}
-function validateHubPlacementV20(){
-  for(let n=5;n<=9;n++)for(let i=0;i<8;i++){const g=buildHubGraphV1(n,zeRng(`hp20-${n}-${i}`)),e=formalEncounterV20('hub',g),l=searchHubGridLayoutV1(e,zeRng(`hpl20-${n}-${i}`));if(!l)return false;e.layout=l;e.grid={cols:3,rows:4};if(!validateConvergenceLayoutRenderableV1(e,l))return false;}return true;
-}
-function validateForkPlacementV20(){
-  for(let n=5;n<=9;n++)for(let i=0;i<8;i++){const g=buildForkGraphV1(n,zeRng(`fp20-${n}-${i}`)),e=formalEncounterV20('fork',g),l=searchForkGridLayoutV1(e,zeRng(`fpl20-${n}-${i}`));if(!l)return false;e.layout=l;e.grid={cols:3,rows:4};if(!validateConvergenceLayoutRenderableV1(e,l))return false;}return true;
-}
+/* ------------------------------ v20 conformance / fixture validators ------------------------------ */
+function topologyEncounterFromGraphV20(topology,g){const zones=g.nodes.map((x,i)=>({zoneId:x.id,name:i===0?'Camp':(i===g.nodes.length-1?'Objective':x.id),capacityPerSide:i===0?3:2,terrain:{difficult:false,hazardous:false},features:[],tags:[...(i===0?['CAMP']:[]),...(i===g.nodes.length-1?['OBJECTIVE']:[])],structural:{entry:i===0,objective:i===g.nodes.length-1}}));const e={topologyProfile:{id:`TOPO_${topology.toUpperCase()}`},entry:{zoneId:'z0'},zones,edges:g.edges};for(const k of ['gauntletModel','hubModel','forkModel'])if(g[k])e[k]=structuredClone(g[k]);return e;}
+function validateGauntletGenerationV1V20(){for(let n=5;n<=9;n++)for(let i=0;i<20;i++){const g=buildGauntletGraphV1(n,zeRng(`g20-${n}-${i}`)),e=topologyEncounterFromGraphV20('gauntlet',g);if(!validateGauntletEncounterV1(e,{requireLayout:false}))return false;}return true;}
+function validateHubGenerationV1V20(){for(let n=5;n<=9;n++)for(let i=0;i<20;i++){const g=buildHubGraphV1(n,zeRng(`h20-${n}-${i}`)),e=topologyEncounterFromGraphV20('hub',g);if(!validateHubEncounterV1(e,{requireLayout:false}))return false;}return true;}
+function validateForkGenerationV1V20(){for(let n=5;n<=9;n++)for(let i=0;i<24;i++){const g=buildForkGraphV1(n,zeRng(`f20-${n}-${i}`)),e=topologyEncounterFromGraphV20('fork',g);repairForkQualityV1(e);if(!validateForkEncounterV1(e,{requireLayout:false})||!validateForkQualityV1(e))return false;}return true;}
+function validateV20PlacementSearch(){for(const [top,builder,search,validator] of [['gauntlet',buildGauntletGraphV1,searchGauntletGridLayoutV1,validateGauntletEncounterV1],['hub',buildHubGraphV1,searchHubGridLayoutV1,validateHubEncounterV1],['fork',buildForkGraphV1,searchForkGridLayoutV1,validateForkEncounterV1]])for(let n=5;n<=9;n++)for(let i=0;i<2;i++){const g=builder(n,zeRng(`${top}-place-${n}-${i}`)),e=topologyEncounterFromGraphV20(top,g);if(top==='fork')repairForkQualityV1(e);const l=search(e,zeRng(`${top}-search-${n}-${i}`));if(!l)return false;applyGridLayoutToEncounter(e,l);if(!validator(e,{requireLayout:true}))return false;}return true;}
 function validateGauntletFixtureSetV1V20(){
-  const pass=[
-    {n:4,edges:[['z0','z1'],['z1','z2'],['z2','z3']],sp:['z0','z1','z2','z3'],sides:[]},
-    {n:7,edges:[['z0','z1'],['z1','z2'],['z2','z3'],['z3','z4'],['z4','z5'],['z5','z6']],sp:['z0','z1','z2','z3','z4','z5','z6'],sides:[]},
-    {n:5,edges:[['z0','z1'],['z1','z2'],['z2','z4'],['z1','z3']],sp:['z0','z1','z2','z4'],sides:[{zoneId:'z3',hostSpineZone:'z1'}]}
-  ];
-  for(const f of pass){const zones=Array.from({length:f.n},(_,i)=>({zoneId:`z${i}`,structural:{entry:i===0,objective:i===f.n-1}})),roles=Object.fromEntries(zones.map(z=>[z.zoneId,'SPINE']));roles.z0='CAMP';roles[`z${f.n-1}`]='OBJECTIVE';for(const s of f.sides)roles[s.zoneId]='SIDE';const e={topologyProfile:{id:'TOPO_GAUNTLET'},entry:{zoneId:'z0'},zones,edges:f.edges,gauntletModel:{standardVersion:'GAUNTLET_V1',spine:f.sp,spineZones:f.sp.slice(1,-1),sideZones:f.sides,nodeRoles:roles}};if(!validateGauntletEncounterV1(e,{requireLayout:false}))return false;}
-  // Locked screenshot bypass negative.
-  const g=buildGauntletGraphV1(6,zeRng('g-fixture-bypass')),e=formalEncounterV20('gauntlet',g);e.edges.push([e.gauntletModel.spine[1],e.gauntletModel.spine[3]]);if(validateGauntletEncounterV1(e,{requireLayout:false}))return false;
+  const valid=topologyEncounterFromGraphV20('gauntlet',buildGauntletGraphV1(7,zeRng('gf-pass')));if(!validateGauntletEncounterV1(valid,{requireLayout:false}))return false;
+  const bypass=structuredClone(valid),sp=bypass.gauntletModel.orderedSpine;if(sp.length<4)return false;bypass.edges.push([sp[0],sp[2]]);if(validateGauntletEncounterV1(bypass,{requireLayout:false}))return false;
+  const sideChain=structuredClone(valid);const side=sideChain.gauntletModel.sideZones?.[0];if(side){const newId='gx';sideChain.zones.push({zoneId:newId,structural:{entry:false,objective:false}});sideChain.edges.push([side.zoneId,newId]);sideChain.gauntletModel.nodeRoles[newId]='SIDE';if(validateGauntletEncounterV1(sideChain,{requireLayout:false}))return false;}
   return true;
 }
 function validateHubFixtureSetV1V20(){
-  // 1–6 PASS families: generated valid Hubs, including actual Peripheral-Link cases.
-  for(const n of [5,6,7,8,9])for(let i=0;i<8;i++){
-    const g=buildHubGraphV1(n,zeRng(`hub-fixture-pass-${n}-${i}`)),e=formalEncounterV20('hub',g);
-    if(!validateHubEncounterV1(e,{requireLayout:false}))return false;
-  }
-  let link1=false,link2=false;
-  for(let i=0;i<300;i++){const g=buildHubGraphV1(9,zeRng(`hub-link-fixture-${i}`));if(g.hubModel.peripheralLinks.length===1)link1=true;if(g.hubModel.peripheralLinks.length===2)link2=true;if(link1&&link2)break;}
-  if(!link1||!link2)return false;
-  const mk=(n,edges,hub,links=[])=>{const zones=Array.from({length:n},(_,i)=>({zoneId:`z${i}`,structural:{entry:i===0,objective:i===n-1}}));const roles=Object.fromEntries(zones.map(z=>[z.zoneId,'SPOKE']));roles.z0='CAMP';roles[hub]='HUB';roles[`z${n-1}`]='OBJECTIVE';return{topologyProfile:{id:'TOPO_HUB'},entry:{zoneId:'z0'},zones,edges,hubModel:{standardVersion:'HUB_V1',hubZone:hub,spokes:(edges.filter(([a,b])=>a===hub||b===hub).map(([a,b])=>a===hub?b:a)),regions:[],peripheralLinks:links,nodeRoles:roles}}};
-  // 7 degree 2
-  if(validateHubEncounterV1(mk(3,[['z0','z1'],['z1','z2']],'z1'),{requireLayout:false}))return false;
-  // 8 degree 6
-  const z8=Array.from({length:8},(_,i)=>({zoneId:`z${i}`,structural:{entry:i===0,objective:i===7}}));const roles8=Object.fromEntries(z8.map(z=>[z.zoneId,'SPOKE']));roles8.z0='CAMP';roles8.z1='HUB';roles8.z7='OBJECTIVE';const e8={topologyProfile:{id:'TOPO_HUB'},entry:{zoneId:'z0'},zones:z8,edges:[['z1','z0'],['z1','z2'],['z1','z3'],['z1','z4'],['z1','z5'],['z1','z6'],['z6','z7']],hubModel:{standardVersion:'HUB_V1',hubZone:'z1',spokes:['z0','z2','z3','z4','z5','z6'],regions:[],peripheralLinks:[],nodeRoles:roles8}};if(validateHubEncounterV1(e8,{requireLayout:false}))return false;
-  // 9 direct Camp→Objective shortcut on otherwise valid generated graph.
-  {const g=buildHubGraphV1(7,zeRng('hub-direct-shortcut')),e=formalEncounterV20('hub',g);e.edges.push(['z0',`z${g.nodes.length-1}`]);if(validateHubEncounterV1(e,{requireLayout:false}))return false;}
-  // 10 equal/shorter Hub-bypass by adding a peripheral Camp→Objective route.
-  {const g=buildHubGraphV1(8,zeRng('hub-bypass')),e=formalEncounterV20('hub',g),obj=`z${g.nodes.length-1}`;const x=g.hubModel.regions.find(r=>r.role==='TERMINAL')?.spoke;if(x){e.edges.push(['z0',x],[x,obj]);if(validateHubEncounterV1(e,{requireLayout:false}))return false;}}
-  // 14 valid graph must find a compliant alternate placement.
-  {const g=buildHubGraphV1(8,zeRng('hub-placement-pass')),e=formalEncounterV20('hub',g);if(!searchHubGridLayoutV1(e,zeRng('hub-placement-search')))return false;}
+  const valid=topologyEncounterFromGraphV20('hub',buildHubGraphV1(7,zeRng('hf-pass')));if(!validateHubEncounterV1(valid,{requireLayout:false}))return false;
+  const degree2=structuredClone(valid),hub=degree2.hubModel.hubZone;const incident=degree2.edges.filter(e=>e.includes(hub));while(incident.length>2){const rm=incident.pop();degree2.edges=degree2.edges.filter(e=>e!==rm);}if(validateHubEncounterV1(degree2,{requireLayout:false}))return false;
+  const direct=structuredClone(valid);direct.edges.push([direct.entry.zoneId,direct.zones.find(z=>z.structural?.objective).zoneId]);if(validateHubEncounterV1(direct,{requireLayout:false}))return false;
+  return true;
+}
+function makeForkQualityFixtureV20(lengths,pressures){
+  const routeCount=lengths.length,n=2+lengths.reduce((a,b)=>a+b,0),objective=`z${n-1}`;let next=1;const nodes=[{id:'z0'}],edges=[],routes=[],roles={z0:'FORK_POINT'};
+  lengths.forEach((len,ri)=>{const zones=[];let prev='z0';for(let j=0;j<len;j++){const id=`z${next++}`;nodes.push({id});roles[id]='FORK_ROUTE';edges.push([prev,id]);prev=id;zones.push(id);}routes.push({id:`r${ri+1}`,zones});});nodes.push({id:objective});roles[objective]='OBJECTIVE';routes.forEach(r=>edges.push([r.zones.at(-1),objective]));
+  const g={nodes,edges,forkModel:{standardVersion:'FORK_V1',forkPoint:'z0',sharedApproach:['z0'],routes,reconnectionStage:{type:'OBJECTIVE',zoneId:objective,mergedRoutes:routes.map(r=>r.id)},nodeRoles:roles,operations:[]}},e=topologyEncounterFromGraphV20('fork',g);
+  routes.forEach((r,i)=>{const z=e.zones.find(x=>x.zoneId===r.zones[0]),p=pressures[i]||{};if(p.difficult){z.terrain.difficult=true;z.difficult=true;}if(p.hazard){z.terrain.hazardous=true;z.hazardous=true;}if(p.choke)z.capacityPerSide=1;if(p.enemy)z.enemyPressure=p.enemy;});return e;
+}
+function validateForkQualityFixtureSetV1V20(){
+  const q1=makeForkQualityFixtureV20([2,2],[{difficult:true},{enemy:'MODERATE'}]);if(!validateForkQualityV1(q1))return false;
+  const q2=makeForkQualityFixtureV20([2,1],[{}, {choke:true}]);if(!validateForkQualityV1(q2))return false;
+  const q3=makeForkQualityFixtureV20([3,1],[{}, {hazard:true}]);if(!validateForkQualityV1(q3))return false;
+  const q4=makeForkQualityFixtureV20([2,1,2],[{}, {hazard:true},{difficult:true}]);if(!validateForkQualityV1(q4))return false;
+  const q5=makeForkQualityFixtureV20([2,1],[{},{}]);if(forkQualityReportV1(q5).primary!=='UNCOMPENSATED_SHORT_ROUTE')return false;
+  const q6=makeForkQualityFixtureV20([3,2],[{hazard:true},{ }]);if(forkQualityReportV1(q6).primary!=='ROUTE_DOMINANCE')return false;
+  const q7=makeForkQualityFixtureV20([2,2],[{},{}]);if(forkQualityReportV1(q7).primary!=='INSUFFICIENT_ROUTE_DIFFERENTIATION')return false;
+  const q8=makeForkQualityFixtureV20([2,1,2],[{difficult:true},{},{hazard:true}]);if(forkQualityReportV1(q8).primary!=='ROUTE_DOMINANCE')return false;
   return true;
 }
 function validateForkFixtureSetV1V20(){
-  const make=(n,edges,fp,routes,stage,roles,approach=['z0'])=>({topologyProfile:{id:'TOPO_FORK'},entry:{zoneId:'z0'},zones:Array.from({length:n},(_,i)=>({zoneId:`z${i}`,structural:{entry:i===0,objective:i===n-1}})),edges,forkModel:{standardVersion:'FORK_V1',forkPoint:fp,sharedApproach:approach,routes,reconnectionStage:stage,nodeRoles:roles}});
-  // 1 Minimum 2-route Fork
-  {const roles={z0:'CAMP_FORK_POINT',z1:'FORK_ROUTE',z2:'FORK_ROUTE',z3:'OBJECTIVE'},e=make(4,[['z0','z1'],['z0','z2'],['z1','z3'],['z2','z3']],'z0',[{id:'R1',zones:['z1'],endpoint:'z1'},{id:'R2',zones:['z2'],endpoint:'z2'}],{type:'OBJECTIVE',zoneId:'z3'},roles);if(!validateForkEncounterV1(e,{requireLayout:false}))return false;}
-  // 2 Shallow 3-route Fork
-  {const roles={z0:'CAMP_FORK_POINT',z1:'FORK_ROUTE',z2:'FORK_ROUTE',z3:'FORK_ROUTE',z4:'OBJECTIVE'},e=make(5,[['z0','z1'],['z0','z2'],['z0','z3'],['z1','z4'],['z2','z4'],['z3','z4']],'z0',[1,2,3].map(i=>({id:`R${i}`,zones:[`z${i}`],endpoint:`z${i}`})),{type:'OBJECTIVE',zoneId:'z4'},roles);if(!validateForkEncounterV1(e,{requireLayout:false}))return false;}
-  // 3 Deep 3-route and 4 asymmetric positive families are exercised by generated graphs.
-  for(const n of [7,8,9])for(let i=0;i<12;i++){const g=buildForkGraphV1(n,zeRng(`fork-pass-${n}-${i}`)),e=formalEncounterV20('fork',g);if(!validateForkEncounterV1(e,{requireLayout:false}))return false;}
-  // 5 Shared Approach: find an actual generated case.
-  let shared=false,partial=false,full=false;
-  for(let i=0;i<400;i++){const g=buildForkGraphV1(9,zeRng(`fork-feature-${i}`));if(g.forkModel.sharedApproach.length>1)shared=true;if(g.forkModel.reconnectionStage.type==='PARTIAL')partial=true;if(g.forkModel.reconnectionStage.type==='INTERMEDIATE')full=true;if(shared&&partial&&full)break;}
-  if(!shared||!partial||!full)return false;
-  // 6 Corrected user-approved Partial Reconnection: R1+R2 merge at z4, R3 remains independent to Objective.
-  {const roles={z0:'CAMP_FORK_POINT',z1:'FORK_ROUTE',z2:'FORK_ROUTE',z3:'FORK_ROUTE',z4:'RECONNECTION',z5:'FORK_ROUTE',z6:'OBJECTIVE'};
-   const e=make(7,[['z0','z1'],['z0','z2'],['z0','z3'],['z1','z4'],['z2','z4'],['z4','z6'],['z3','z5'],['z5','z6']],'z0',[{id:'R1',zones:['z1'],endpoint:'z1'},{id:'R2',zones:['z2'],endpoint:'z2'},{id:'R3',zones:['z3','z5'],endpoint:'z5'}],{type:'PARTIAL',zoneId:'z4',mergedRoutes:['R1','R2'],remainingRoutes:['R3'],finalZoneId:'z6'},roles);if(!validateForkEncounterV1(e,{requireLayout:false}))return false;}
-  // 7 Four-route negative
-  {const roles={z0:'CAMP_FORK_POINT',z1:'FORK_ROUTE',z2:'FORK_ROUTE',z3:'FORK_ROUTE',z4:'FORK_ROUTE',z5:'OBJECTIVE'},e=make(6,[['z0','z1'],['z0','z2'],['z0','z3'],['z0','z4'],['z1','z5'],['z2','z5'],['z3','z5'],['z4','z5']],'z0',[1,2,3,4].map(i=>({id:`R${i}`,zones:[`z${i}`],endpoint:`z${i}`})),{type:'OBJECTIVE',zoneId:'z5'},roles);if(validateForkEncounterV1(e,{requireLayout:false}))return false;}
-  // 9 Cross-link negative based on a valid 2-route graph.
-  {const g=buildForkGraphV1(7,zeRng('fork-cross'));const e=formalEncounterV20('fork',g);if(g.forkModel.routes.length>=2){e.edges.push([g.forkModel.routes[0].zones[0],g.forkModel.routes[1].zones[0]]);if(validateForkEncounterV1(e,{requireLayout:false}))return false;}}
-  // 10 Dead-end/incomplete route negative.
-  {const g=buildForkGraphV1(7,zeRng('fork-dead'));const e=formalEncounterV20('fork',g),r=e.forkModel.routes[0],end=r.endpoint,obj=`z${g.nodes.length-1}`;const st=e.forkModel.reconnectionStage;const target=st.type==='OBJECTIVE'?obj:st.zoneId;e.edges=e.edges.filter(([a,b])=>!((a===end&&b===target)||(b===end&&a===target)));if(validateForkEncounterV1(e,{requireLayout:false}))return false;}
-  // 14 alternate placement positive.
-  {const g=buildForkGraphV1(9,zeRng('fork-placement-pass')),e=formalEncounterV20('fork',g);if(!searchForkGridLayoutV1(e,zeRng('fork-placement-search')))return false;}
+  // Structural positive: Camp-as-Fork, 2-route, 3-route, asymmetric, shared approach, full and partial reconnection.
+  for(const seed of ['fa','fb','fc','fd','fe','ff']){const g=buildForkGraphV1(8,zeRng(seed)),e=topologyEncounterFromGraphV20('fork',g);if(!validateForkEncounterV1(e,{requireLayout:false}))return false;}
+  const four=makeForkQualityFixtureV20([1,1,1,1],[{},{},{},{}]);four.forkModel.routes.push({id:'r4',zones:[]});if(validateForkEncounterV1(four,{requireLayout:false}))return false;
+  const dead=makeForkQualityFixtureV20([2,2],[{},{}]);dead.edges=dead.edges.filter(([a,b])=>!(a===dead.forkModel.routes[0].zones.at(-1)&&b===dead.zones.at(-1).zoneId)&&!(b===dead.forkModel.routes[0].zones.at(-1)&&a===dead.zones.at(-1).zoneId));if(validateForkEncounterV1(dead,{requireLayout:false}))return false;
   return true;
 }
+
 
 function applyGridLayoutToEncounter(encounter,layout){
   if(!layout)return false;
@@ -2389,27 +2297,6 @@ function assignEncounterToGrid(encounter,rng){
     if(!validateBranchEncounterV1(encounter,{requireLayout:true})) throw new Error('Branch graph failed structural/renderability validation.');
     return encounter;
   }
-  if(topology==='gauntlet'){
-    const layout=encounter.gauntletPreferredLayout || searchGauntletGridLayoutV1(encounter,rng);
-    if(!layout)throw new Error('Gauntlet graph has no compliant 3×4 representation.');
-    applyGridLayoutToEncounter(encounter,layout);
-    if(!validateGauntletEncounterV1(encounter,{requireLayout:true}))throw new Error('Gauntlet graph failed structural/renderability validation.');
-    return encounter;
-  }
-  if(topology==='hub'){
-    const layout=encounter.hubPreferredLayout || searchHubGridLayoutV1(encounter,rng);
-    if(!layout)throw new Error('Hub graph has no compliant 3×4 representation.');
-    applyGridLayoutToEncounter(encounter,layout);
-    if(!validateHubEncounterV1(encounter,{requireLayout:true}))throw new Error('Hub graph failed structural/renderability validation.');
-    return encounter;
-  }
-  if(topology==='fork'){
-    const layout=encounter.forkPreferredLayout || searchForkGridLayoutV1(encounter,rng);
-    if(!layout)throw new Error('Fork graph has no compliant 3×4 representation.');
-    applyGridLayoutToEncounter(encounter,layout);
-    if(!validateForkEncounterV1(encounter,{requireLayout:true}))throw new Error('Fork graph failed structural/renderability validation.');
-    return encounter;
-  }
   if(topology==='convergence'){
     const layout=encounter.convergencePreferredLayout || searchConvergenceGridLayout(encounter,rng);
     if(!layout) throw new Error('Convergence graph has no compliant 3×4 representation.');
@@ -2417,6 +2304,16 @@ function assignEncounterToGrid(encounter,rng){
     if(!validateConvergenceEncounterV1(encounter,{requireLayout:true})){
       throw new Error('Convergence graph failed structural/renderability validation.');
     }
+    return encounter;
+  }
+  if(['gauntlet','hub','fork'].includes(topology)){
+    const searches={gauntlet:searchGauntletGridLayoutV1,hub:searchHubGridLayoutV1,fork:searchForkGridLayoutV1};
+    const validators={gauntlet:validateGauntletEncounterV1,hub:validateHubEncounterV1,fork:validateForkEncounterV1};
+    const layout=encounter[`${topology}PreferredLayout`] || searches[topology](encounter,rng);
+    if(!layout)throw new Error(`${topology} graph has no compliant 3×4 representation.`);
+    applyGridLayoutToEncounter(encounter,layout);
+    if(!validators[topology](encounter,{requireLayout:true}))throw new Error(`${topology} graph failed structural/renderability validation.`);
+    if(topology==='fork'&&!validateForkQualityV1(encounter))throw new Error('Fork graph failed quality validation.');
     return encounter;
   }
 
@@ -2549,21 +2446,6 @@ class PrototypeCZoneGenerator {
       if(!accepted) throw new Error('Branch regeneration exhausted without a compliant 3×4 representation.');
       graph=accepted;
     }
-    if(topology==='gauntlet'||topology==='hub'||topology==='fork'){
-      let accepted=null;
-      const builder=topology==='gauntlet'?buildGauntletGraphV1:topology==='hub'?buildHubGraphV1:buildForkGraphV1;
-      const validator=topology==='gauntlet'?validateGauntletEncounterV1:topology==='hub'?validateHubEncounterV1:validateForkEncounterV1;
-      const searcher=topology==='gauntlet'?searchGauntletGridLayoutV1:topology==='hub'?searchHubGridLayoutV1:searchForkGridLayoutV1;
-      for(let retry=0;retry<24;retry++){
-        const trial=retry===0?graph:builder(zoneCount,zeRng(`${seed}|${topology}-regenerate-${retry}`));
-        const trialEncounter=formalEncounterV20(topology,trial);
-        if(!validator(trialEncounter,{requireLayout:false}))continue;
-        const layout=searcher(trialEncounter,rng);if(!layout)continue;
-        trial[`${topology}PreferredLayout`]=layout;accepted=trial;break;
-      }
-      if(!accepted)throw new Error(`${topology} regeneration exhausted without a compliant 3×4 representation.`);
-      graph=accepted;
-    }
     if(topology==='convergence'){
       let accepted=null;
       for(let retry=0;retry<16;retry++){
@@ -2577,6 +2459,22 @@ class PrototypeCZoneGenerator {
         accepted=trial;break;
       }
       if(!accepted) throw new Error('Convergence regeneration exhausted without a compliant 3×4 representation.');
+      graph=accepted;
+    }
+    if(['gauntlet','hub','fork'].includes(topology)){
+      const builders={gauntlet:buildGauntletGraphV1,hub:buildHubGraphV1,fork:buildForkGraphV1};
+      const validators={gauntlet:validateGauntletEncounterV1,hub:validateHubEncounterV1,fork:validateForkEncounterV1};
+      const searches={gauntlet:searchGauntletGridLayoutV1,hub:searchHubGridLayoutV1,fork:searchForkGridLayoutV1};
+      let accepted=null;
+      for(let retry=0;retry<28;retry++){
+        const trial=retry===0?graph:builders[topology](zoneCount,zeRng(`${seed}|${topology}-regenerate-${retry}`));
+        const trialZones=trial.nodes.map((node,i)=>({zoneId:node.id,structural:{entry:i===0,objective:i===trial.nodes.length-1}}));
+        const modelKey=`${topology}Model`,trialEncounter={topologyProfile:{id:`TOPO_${topology.toUpperCase()}`},entry:{zoneId:'z0'},zones:trialZones,edges:trial.edges,[modelKey]:structuredClone(trial[modelKey])};
+        if(!validators[topology](trialEncounter,{requireLayout:false}))continue;
+        const trialLayout=searches[topology](trialEncounter,rng);if(!trialLayout)continue;
+        trial[`${topology}PreferredLayout`]=trialLayout;accepted=trial;break;
+      }
+      if(!accepted)throw new Error(`${topology} regeneration exhausted without a compliant 3×4 representation.`);
       graph=accepted;
     }
     const effects=this._assignEffects(graph.nodes.length,rng,bossMode);
@@ -2634,6 +2532,14 @@ class PrototypeCZoneGenerator {
       }
     }
 
+    if(topology==='fork'){
+      const qEncounter={topologyProfile:{id:'TOPO_FORK'},entry:{zoneId:zones[0].zoneId},zones,edges:graph.edges,forkModel:structuredClone(graph.forkModel)};
+      repairForkQualityV1(qEncounter);
+      if(!validateForkQualityV1(qEncounter)){
+        if(generationAttempt<24)return this.generate({node,difficulty,bossMode,runNumber,generationAttempt:generationAttempt+1,forcedTopology,coverageMode});
+        throw new Error('Fork quality regeneration exhausted without a meaningful route choice.');
+      }
+    }
     const challengeBundle=this._buildChallenges({zones,edges:graph.edges,rng,difficulty,bossMode,runNumber});
 
     const encounter={
@@ -2752,8 +2658,7 @@ class PrototypeCZoneGenerator {
 
     if(topology==='corridor'){
       for(let i=0;i<n;i++){
-        const x=50, y=90-(82*i/(n-1));
-        add(`z${i}`,x,y);if(i>0)edge(`z${i-1}`,`z${i}`);
+        const x=50,y=90-(82*i/(n-1));add(`z${i}`,x,y);if(i>0)edge(`z${i-1}`,`z${i}`);
       }
     }
     else if(topology==='gauntlet'){
@@ -2792,7 +2697,7 @@ class PrototypeCZoneGenerator {
     if((encounter.topologyProfile?.id||'').toUpperCase()==='TOPO_CONVERGENCE' && !validateConvergenceEncounterV1(encounter,{requireLayout:!!encounter.layout})) return false;
     if((encounter.topologyProfile?.id||'').toUpperCase()==='TOPO_GAUNTLET' && !validateGauntletEncounterV1(encounter,{requireLayout:!!encounter.layout})) return false;
     if((encounter.topologyProfile?.id||'').toUpperCase()==='TOPO_HUB' && !validateHubEncounterV1(encounter,{requireLayout:!!encounter.layout})) return false;
-    if((encounter.topologyProfile?.id||'').toUpperCase()==='TOPO_FORK' && !validateForkEncounterV1(encounter,{requireLayout:!!encounter.layout})) return false;
+    if((encounter.topologyProfile?.id||'').toUpperCase()==='TOPO_FORK' && (!validateForkEncounterV1(encounter,{requireLayout:!!encounter.layout}) || !validateForkQualityV1(encounter))) return false;
     return true;
   }
 }
@@ -6122,6 +6027,7 @@ function attachECFTopologyGraphMetadataV192(encounter,graph){
   if(graph.forkPreferredLayout) encounter.forkPreferredLayout=structuredClone(graph.forkPreferredLayout);
   return encounter;
 }
+const attachECFTopologyGraphMetadataV20=attachECFTopologyGraphMetadataV192;
 
 function generateECFTier1Encounter(node){
   const objective=node?.ecfObjective||'CLEAR_HOSTILES',topology=node?.ecfTopology||'corridor';
@@ -6134,7 +6040,7 @@ function generateECFTier1Encounter(node){
     const challenges=objective==='BREAKTHROUGH'?[{challengeId:'CHALLENGE_REACH_OBJECTIVE',challengeType:'CH_REACH',title:'Breakthrough',description:'Reach and secure the Objective Zone.',required:true,targetZoneId:target,minimumPathEdges:4,condition:{conditionType:'CO_ZONE_REACHED',targetZoneId:target}}]:[{challengeId:'CHALLENGE_CLEAR_HOSTILES',challengeType:'CH_CLEAR',title:'Clear Hostiles',description:'Defeat all hostile units in the expedition.',required:true,condition:{conditionType:'CO_ALL_HOSTILES_DEFEATED'}}];
     let encounter={encounterId:`ECF_T1_${zeHashSeed(seedBase+'|'+attempt)}`,seed:`${seedBase}|${attempt}`,schemaVersion:'1.0.0',contentVersion:'ECF-T1-1.0.0',topologyProfile:{id:`TOPO_${topology.toUpperCase()}`,version:'1.0.0'},entry:{zoneId:zones[0].zoneId},zones,edges:graph.edges,challengeProfile:objective,challenges,objective:{objectiveId:objective==='BREAKTHROUGH'?'OBJECTIVE_BREAKTHROUGH':'OBJECTIVE_CLEAR_HOSTILES',type:objective==='BREAKTHROUGH'?'OB_COMPLETE_REQUIRED_CHALLENGES':'OB_ELIMINATE_ALL_HOSTILES',priority:'PRIMARY',requiredChallengeIds:challenges.map(c=>c.challengeId)}};
     attachECFTopologyGraphMetadataV192(encounter,graph);
-    normalizeECFTier1Terrain(encounter,rng);applyLocationTheme(encounter,rng);
+    normalizeECFTier1Terrain(encounter,rng);if(topology==='fork')repairForkQualityV1(encounter);applyLocationTheme(encounter,rng);
     try{assignEncounterToGrid(encounter,rng);}catch(err){
       if(['branch','convergence','gauntlet','hub','fork'].includes(topology))continue;
       throw err;
@@ -6174,7 +6080,9 @@ function generateECFTier2Encounter(node){
     const entryId=zones[0].zoneId;
     const distancePairs=zones.slice(1).map(z=>[z.zoneId,shortestEncounterDistance({zones,edges:graph.edges},entryId,z.zoneId)]).filter(([,d])=>Number.isFinite(d)).sort((a,b)=>b[1]-a[1]);
     if(!distancePairs.length)continue;
-    const [target,dist]=distancePairs[0];
+    const canonicalObjectiveTopologies=['gauntlet','hub','fork'];
+    const target=canonicalObjectiveTopologies.includes(topology)?zones[zones.length-1].zoneId:distancePairs[0][0];
+    const dist=shortestEncounterDistance({zones,edges:graph.edges},entryId,target);
     if((objective==='BREAKTHROUGH'||objective==='CLEAR_REACH')&&dist<4)continue;
     const targetZone=zones.find(z=>z.zoneId===target); if(!targetZone)continue; targetZone.name='Objective';targetZone.structural.objective=true;targetZone.tags.push('OBJECTIVE');
     const clear={challengeId:'CHALLENGE_CLEAR_HOSTILES',challengeType:'CH_CLEAR',title:'Clear Hostiles',description:'Defeat all hostile units.',required:true,condition:{conditionType:'CO_ALL_HOSTILES_DEFEATED'}};
@@ -6182,7 +6090,7 @@ function generateECFTier2Encounter(node){
     const challenges=objective==='CLEAR_HOSTILES'?[clear]:objective==='BREAKTHROUGH'?[reach]:[clear,reach];
     let enc={encounterId:`ECF_T2_${zeHashSeed(seedBase+'|'+attempt)}`,seed:`${seedBase}|${attempt}`,schemaVersion:'1.0.0',contentVersion:'ECF-T2-1.0.0',topologyProfile:{id:`TOPO_${topology.toUpperCase()}`,version:'1.0.0'},entry:{zoneId:zones[0].zoneId},zones,edges:graph.edges,challengeProfile:objective,challenges,objective:{objectiveId:`OBJECTIVE_${objective}`,type:'OB_COMPLETE_REQUIRED_CHALLENGES',priority:'PRIMARY',requiredChallengeIds:challenges.map(c=>c.challengeId)}};
     attachECFTopologyGraphMetadataV192(enc,graph);
-    normalizeECFTier2Terrain(enc,rng,node);applyLocationTheme(enc,rng);
+    normalizeECFTier2Terrain(enc,rng,node);if(topology==='fork')repairForkQualityV1(enc);applyLocationTheme(enc,rng);
     try{assignEncounterToGrid(enc,rng);}catch(err){
       if(['branch','convergence','gauntlet','hub','fork'].includes(topology))continue;
       throw err;
@@ -6217,14 +6125,14 @@ function generateECFTier3Encounter(node){
     const rng=zeRng(`${seedBase}|${attempt}`),zoneCount=zeInt(rng,ECF_TIER3.zoneMin,ECF_TIER3.zoneMax),graph=PrototypeCZoneGenerator._buildGraph(topology,zoneCount,rng);
     const zones=graph.nodes.map((n,i)=>({zoneId:n.id,name:i===0?'Camp':`Zone ${i+1}`,capacityPerSide:i===0?3:zeInt(rng,1,3),terrain:{difficult:false,hazardous:false},features:[],structural:{entry:i===0,objective:false},effect:i===0?'rally':null,difficult:false,tags:[...(i===0?['CAMP','RALLY']:[])]}));
     const entryId=zones[0].zoneId,distancePairs=zones.slice(1).map(z=>[z.zoneId,shortestEncounterDistance({zones,edges:graph.edges},entryId,z.zoneId)]).filter(([,d])=>Number.isFinite(d)).sort((a,b)=>b[1]-a[1]);
-    if(!distancePairs.length)continue; const [target,dist]=distancePairs[0]; if((objective==='BREAKTHROUGH'||objective==='CLEAR_REACH')&&dist<4)continue;
+    if(!distancePairs.length)continue; const canonicalObjectiveTopologies=['gauntlet','hub','fork']; const target=canonicalObjectiveTopologies.includes(topology)?zones[zones.length-1].zoneId:distancePairs[0][0]; const dist=shortestEncounterDistance({zones,edges:graph.edges},entryId,target); if((objective==='BREAKTHROUGH'||objective==='CLEAR_REACH')&&dist<4)continue;
     const targetZone=zones.find(z=>z.zoneId===target);if(!targetZone)continue;targetZone.name='Objective';targetZone.structural.objective=true;targetZone.tags.push('OBJECTIVE');
     const clear={challengeId:'CHALLENGE_CLEAR_HOSTILES',challengeType:'CH_CLEAR',title:'Clear Hostiles',description:'Defeat all hostile units.',required:true,condition:{conditionType:'CO_ALL_HOSTILES_DEFEATED'}};
     const reach={challengeId:'CHALLENGE_REACH_OBJECTIVE',challengeType:'CH_REACH',title:'Reach Objective',description:'Reach and secure the Objective Zone.',required:true,targetZoneId:target,minimumPathEdges:4,condition:{conditionType:'CO_ZONE_REACHED',targetZoneId:target}};
     const challenges=objective==='CLEAR_HOSTILES'?[clear]:objective==='BREAKTHROUGH'?[reach]:[clear,reach];
     let enc={encounterId:`ECF_T3_${zeHashSeed(seedBase+'|'+attempt)}`,seed:`${seedBase}|${attempt}`,schemaVersion:'1.0.0',contentVersion:'ECF-T3-1.0.0',topologyProfile:{id:`TOPO_${topology.toUpperCase()}`,version:'1.0.0'},entry:{zoneId:zones[0].zoneId},zones,edges:graph.edges,challengeProfile:objective,challenges,objective:{objectiveId:`OBJECTIVE_${objective}`,type:'OB_COMPLETE_REQUIRED_CHALLENGES',priority:'PRIMARY',requiredChallengeIds:challenges.map(c=>c.challengeId)}};
     attachECFTopologyGraphMetadataV192(enc,graph);
-    normalizeECFTier3Terrain(enc,rng,node);applyLocationTheme(enc,rng);
+    normalizeECFTier3Terrain(enc,rng,node);if(topology==='fork')repairForkQualityV1(enc);applyLocationTheme(enc,rng);
     try{assignEncounterToGrid(enc,rng);}catch(err){
       if(['branch','convergence','gauntlet','hub','fork'].includes(topology))continue;
       throw err;
@@ -11136,9 +11044,10 @@ function generateECFTierBEncounter(){
     const obj=zones[zones.length-1];obj.name='Boss Ground';obj.structural.objective=true;obj.tags.push('OBJECTIVE');
     const enc={encounterId:`ECF_TB_${zeHashSeed(seedBase+'|'+attempt)}`,seed:`${seedBase}|${attempt}`,schemaVersion:'1.0.0',contentVersion:'ECF-TB-1.0.0',topologyProfile:{id:`TOPO_${topology.toUpperCase()}`,version:'1.0.0'},entry:{zoneId:zones[0].zoneId},zones,edges:graph.edges,challengeProfile:'DEFEAT_BOSS',challenges:[],objective:{objectiveId:'OBJECTIVE_DEFEAT_BOSS',type:'OB_DEFEAT_BOSS',priority:'PRIMARY',requiredChallengeIds:[]},ecfTier:'TB'};
     attachECFTopologyGraphMetadataV192(enc,graph);
+    if(topology==='fork')repairForkQualityV1(enc);
     applyLocationTheme(enc,rng);
     try{ assignEncounterToGrid(enc,rng); }
-    catch(err){ if(topology==='convergence') continue; throw err; }
+    catch(err){ if(['convergence','gauntlet','hub','fork','branch'].includes(topology)) continue; throw err; }
     if(PrototypeCZoneGenerator.validate(enc) && encounterSupportsEnemyRoster(enc,4)) return enc;
   }
   throw new Error('Tier B encounter generation failed after 64 attempts.');
@@ -13685,6 +13594,15 @@ function runECFConformanceSuiteShell(){
       {name:'Branch Generation Algorithm v1 v19',pass:validateBranchGenerationV1V19()},
       {name:'Branch Placement + Renderability v19',pass:validateBranchPlacementSearchV19()},
       {name:'Branch Validator Fixture Set v1 v19',pass:validateBranchFixtureSetV1V19()},
+      {name:'Gauntlet Generation Algorithm v1 v20',pass:validateGauntletGenerationV1V20()},
+      {name:'Gauntlet Validator Fixture Set v1 v20',pass:validateGauntletFixtureSetV1V20()},
+      {name:'Hub Generation Algorithm v1 v20',pass:validateHubGenerationV1V20()},
+      {name:'Hub Validator Fixture Set v1 v20',pass:validateHubFixtureSetV1V20()},
+      {name:'Fork Generation Algorithm v1 v20',pass:validateForkGenerationV1V20()},
+      {name:'Fork Validator Fixture Set v1 v20',pass:validateForkFixtureSetV1V20()},
+      {name:'Fork Quality Validator v1 + Fixtures v20',pass:validateForkQualityFixtureSetV1V20()},
+      {name:'Gauntlet/Hub/Fork Placement + Renderability v20',pass:validateV20PlacementSearch()},
+      {name:'Topology Metadata Integration v20',pass:validateECFTopologyMetadataIntegrationV20()},
       {name:'Connection Routing Standard v2 / Diagonal Routing v17',pass:validateConnectionRoutingStandardV2()},
       {name:'Run 0 → Run 1 Persistence',pass:validateECFRunTransitionV190()}
     ],
@@ -13695,26 +13613,51 @@ function runECFConformanceSuiteShell(){
 }
 
 
-function validateECFTopologyMetadataIntegrationV20(){
-  const specs=[
-    ['branch','branchModel',validateBranchEncounterV1],
-    ['convergence','convergenceModel',validateConvergenceEncounterV1],
-    ['gauntlet','gauntletModel',validateGauntletEncounterV1],
-    ['hub','hubModel',validateHubEncounterV1],
-    ['fork','forkModel',validateForkEncounterV1]
-  ];
-  for(const [top,key,validator] of specs){
-    const g=PrototypeCZoneGenerator._buildGraph(top,top==='hub'?7:7,zeRng(`v20-meta-${top}`));
-    const e=formalEncounterV20(top,g);
-    attachECFTopologyGraphMetadataV192(e,g);
-    if(!e[key]||!validator(e,{requireLayout:false}))return false;
-  }
+function validateECFTopologyMetadataIntegrationV192(){
+  const branch=PrototypeCZoneGenerator._buildGraph('branch',5,zeRng('v192-branch-metadata'));
+  const bz=branch.nodes.map((n,i)=>({zoneId:n.id,structural:{entry:i===0,objective:i===branch.nodes.length-1}}));
+  const be={topologyProfile:{id:'TOPO_BRANCH'},entry:{zoneId:bz[0].zoneId},zones:bz,edges:branch.edges};
+  attachECFTopologyGraphMetadataV192(be,branch);
+  if(!be.branchModel||!validateBranchEncounterV1(be,{requireLayout:false}))return false;
+
+  const conv=PrototypeCZoneGenerator._buildGraph('convergence',7,zeRng('v192-convergence-metadata'));
+  const cz=conv.nodes.map((n,i)=>({zoneId:n.id,structural:{entry:i===0,objective:i===conv.nodes.length-1}}));
+  const ce={topologyProfile:{id:'TOPO_CONVERGENCE'},entry:{zoneId:cz[0].zoneId},zones:cz,edges:conv.edges};
+  attachECFTopologyGraphMetadataV192(ce,conv);
+  if(!ce.convergenceModel||!validateConvergenceEncounterV1(ce,{requireLayout:false}))return false;
+
   return [
     String(generateECFTier0Encounter).includes('attachECFTopologyGraphMetadataV192(encounter,graph)'),
     String(generateECFTier1Encounter).includes('attachECFTopologyGraphMetadataV192(encounter,graph)'),
     String(generateECFTier2Encounter).includes('attachECFTopologyGraphMetadataV192(enc,graph)'),
     String(generateECFTier3Encounter).includes('attachECFTopologyGraphMetadataV192(enc,graph)'),
     String(generateECFTierBEncounter).includes('attachECFTopologyGraphMetadataV192(enc,graph)')
+  ].every(Boolean);
+}
+
+
+function validateECFTopologyMetadataIntegrationV20(){
+  const specs=[
+    ['gauntlet','gauntletModel',validateGauntletEncounterV1],
+    ['hub','hubModel',validateHubEncounterV1],
+    ['fork','forkModel',validateForkEncounterV1]
+  ];
+  for(const [top,key,validator] of specs){
+    const graph=PrototypeCZoneGenerator._buildGraph(top,7,zeRng(`v20-${top}-metadata`));
+    const zones=graph.nodes.map((n,i)=>({zoneId:n.id,capacityPerSide:i===0?3:2,terrain:{difficult:false,hazardous:false},features:[],tags:[],structural:{entry:i===0,objective:i===graph.nodes.length-1}}));
+    const enc={topologyProfile:{id:`TOPO_${top.toUpperCase()}`},entry:{zoneId:zones[0].zoneId},zones,edges:graph.edges};
+    attachECFTopologyGraphMetadataV20(enc,graph);
+    if(top==='fork')repairForkQualityV1(enc);
+    if(!enc[key]||!validator(enc,{requireLayout:false}))return false;
+  }
+  return [
+    String(attachECFTopologyGraphMetadataV192).includes('gauntletModel'),
+    String(attachECFTopologyGraphMetadataV192).includes('hubModel'),
+    String(attachECFTopologyGraphMetadataV192).includes('forkModel'),
+    String(generateECFTier1Encounter).includes('repairForkQualityV1'),
+    String(generateECFTier2Encounter).includes('repairForkQualityV1'),
+    String(generateECFTier3Encounter).includes('repairForkQualityV1'),
+    String(generateECFTierBEncounter).includes('repairForkQualityV1')
   ].every(Boolean);
 }
 
@@ -13775,14 +13718,14 @@ function harnessValidatorRegistry(){
     ['ECF v19 Branch Placement + Renderability',harnessValidatorRef('validateBranchPlacementSearchV19')],
     ['ECF v19 Branch Validator Fixture Set v1',harnessValidatorRef('validateBranchFixtureSetV1V19')],
     ['ECF v20 Gauntlet Generation Algorithm v1',harnessValidatorRef('validateGauntletGenerationV1V20')],
-    ['ECF v20 Gauntlet Placement + Renderability',harnessValidatorRef('validateGauntletPlacementV20')],
     ['ECF v20 Gauntlet Validator Fixture Set v1',harnessValidatorRef('validateGauntletFixtureSetV1V20')],
     ['ECF v20 Hub Generation Algorithm v1',harnessValidatorRef('validateHubGenerationV1V20')],
-    ['ECF v20 Hub Placement + Renderability',harnessValidatorRef('validateHubPlacementV20')],
     ['ECF v20 Hub Validator Fixture Set v1',harnessValidatorRef('validateHubFixtureSetV1V20')],
     ['ECF v20 Fork Generation Algorithm v1',harnessValidatorRef('validateForkGenerationV1V20')],
-    ['ECF v20 Fork Placement + Renderability',harnessValidatorRef('validateForkPlacementV20')],
     ['ECF v20 Fork Validator Fixture Set v1',harnessValidatorRef('validateForkFixtureSetV1V20')],
+    ['ECF v20 Fork Quality Validator v1 + Fixtures',harnessValidatorRef('validateForkQualityFixtureSetV1V20')],
+    ['ECF v20 Gauntlet/Hub/Fork Placement + Renderability',harnessValidatorRef('validateV20PlacementSearch')],
+    ['ECF v19.2 Topology Metadata Integration',harnessValidatorRef('validateECFTopologyMetadataIntegrationV192')],
     ['ECF v20 Topology Metadata Integration',harnessValidatorRef('validateECFTopologyMetadataIntegrationV20')],
     ['ECF Run 0 to Run 1 Persistence v0.8.0',harnessValidatorRef('validateECFRunTransitionV190')],
     ['v1.8.21 Mobile Combat Readability',harnessValidatorRef('validateMobileCombatReadabilityV1821')],
@@ -14395,7 +14338,7 @@ function validateFullRegressionHarnessV1822(){
   }catch(error){
     console.error('Procedural Zone Engine self-test failed:',error);
     const badge=document.getElementById('zoneEngineStatus');
-    if(badge){badge.textContent='ZE v1.8.31 FINAL FAIL';badge.style.color='var(--warn)';badge.style.borderColor='var(--warn)';}
+    if(badge){badge.textContent=`ZE v1.8.31 FINAL FAIL · ${ECF_PLAYTEST_BUILD_ID}`;badge.style.color='var(--warn)';badge.style.borderColor='var(--warn)';}
   }
 })();
 
